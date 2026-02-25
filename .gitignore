@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Hardhat artifacts
+cache/
+artifacts/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Deployments (local only)
+deployments/hardhat.json
+
+# Coverage
+coverage/
+coverage.json
+
+# TypeChain
+typechain/
+typechain-types/
+
+# Docs - private learning guide
+docs/COMPLETE_GUIDE.md

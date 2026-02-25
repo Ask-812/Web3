@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gas Fee Optimizer - Web3Assam</title>
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --bg-dark: #0f172a;
+            --bg-card: #1e293b;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: #334155;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, var(--primary), #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            background: var(--primary);
+            border-radius: 9999px;
+            font-size: 0.8rem;
+            margin-top: 1rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+        }
+
+        .card h2 {
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card h2 .icon {
+            font-size: 1.5rem;
+        }
+
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            background: var(--bg-dark);
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .status-item {
+            text-align: center;
+        }
+
+        .status-item .label {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+
+        .status-item .value {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        .status-item .value.connected {
+            color: var(--success);
+        }
+
+        .status-item .value.disconnected {
+            color: var(--danger);
+        }
+
+        button {
+            width: 100%;
+            padding: 0.875rem 1.5rem;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 0.75rem;
+        }
+
+        button:last-child {
+            margin-bottom: 0;
+        }
+
+        button.primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        button.primary:hover {
+            background: var(--primary-dark);
+        }
+
+        button.success {
+            background: var(--success);
+            color: white;
+        }
+
+        button.warning {
+            background: var(--warning);
+            color: black;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .input-group {
+            margin-bottom: 1rem;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        input, textarea {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            color: var(--text);
+            font-size: 1rem;
+        }
+
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .log-container {
+            background: var(--bg-dark);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+
+        .log-entry {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+
+        .log-entry.success {
+            color: var(--success);
+        }
+
+        .log-entry.error {
+            color: var(--danger);
+        }
+
+        .log-entry.info {
+            color: var(--primary);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .stat-card {
+            background: var(--bg-dark);
+            padding: 1rem;
+            border-radius: 0.5rem;
+            text-align: center;
+        }
+
+        .stat-card .value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--primary);
+        }
+
+        .stat-card .label {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+
+        .batch-items {
+            background: var(--bg-dark);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .batch-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .batch-item:last-child {
+            border-bottom: none;
+        }
+
+        .gas-comparison {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: linear-gradient(135deg, var(--success), #059669);
+            border-radius: 0.5rem;
+        }
+
+        .gas-comparison h3 {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .gas-comparison .savings {
+            font-size: 2rem;
+            font-weight: bold;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .loading {
+            animation: pulse 1.5s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⛽ Gas Fee Optimizer</h1>
+            <p class="subtitle">Batch Transactions & Meta-Transaction System</p>
+            <span class="badge">Web3Assam - KRITI 2026</span>
+        </header>
+
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="label">Wallet</div>
+                <div id="walletStatus" class="value disconnected">Not Connected</div>
+            </div>
+            <div class="status-item">
+                <div class="label">Network</div>
+                <div id="networkStatus" class="value">-</div>
+            </div>
+            <div class="status-item">
+                <div class="label">Balance</div>
+                <div id="balanceStatus" class="value">-</div>
+            </div>
+            <div class="status-item">
+                <div class="label">Gas Price</div>
+                <div id="gasPrice" class="value">-</div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <!-- Connect Wallet Card -->
+            <div class="card">
+                <h2><span class="icon">🔗</span> Connection</h2>
+                <button id="connectBtn" class="primary">Connect Wallet</button>
+                <div class="input-group">
+                    <label>BatchExecutor Address</label>
+                    <input type="text" id="batchExecutorAddr" placeholder="0x...">
+                </div>
+                <div class="input-group">
+                    <label>SampleDApp Address</label>
+                    <input type="text" id="sampleDAppAddr" placeholder="0x...">
+                </div>
+                <button id="loadContractsBtn" class="primary">Load Contracts</button>
+            </div>
+
+            <!-- Batch Builder Card -->
+            <div class="card">
+                <h2><span class="icon">📦</span> Batch Builder</h2>
+                <div class="input-group">
+                    <label>Username (Profile Update)</label>
+                    <input type="text" id="username" placeholder="Enter username">
+                </div>
+                <div class="input-group">
+                    <label>Bio</label>
+                    <input type="text" id="bio" placeholder="Enter bio">
+                </div>
+                <div class="input-group">
+                    <label>Listing Name</label>
+                    <input type="text" id="listingName" placeholder="NFT Art #1">
+                </div>
+                <div class="input-group">
+                    <label>Listing Price (ETH)</label>
+                    <input type="number" id="listingPrice" placeholder="0.1" step="0.01">
+                </div>
+                <button id="addToBatchBtn" class="primary">Add Actions to Batch</button>
+            </div>
+
+            <!-- Pending Batch Card -->
+            <div class="card">
+                <h2><span class="icon">📋</span> Pending Batch</h2>
+                <div id="batchItems" class="batch-items">
+                    <p style="color: var(--text-muted); text-align: center;">No actions in batch</p>
+                </div>
+                <button id="executeBatchBtn" class="success" disabled>Execute Batch (Direct)</button>
+                <button id="executeMetaBtn" class="warning" disabled>Execute as Meta-Tx (Gasless Simulation)</button>
+                <button id="clearBatchBtn" class="primary">Clear Batch</button>
+            </div>
+
+            <!-- Gas Comparison Card -->
+            <div class="card">
+                <h2><span class="icon">📊</span> Gas Savings</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div id="individualGas" class="value">0</div>
+                        <div class="label">Individual Txs Gas</div>
+                    </div>
+                    <div class="stat-card">
+                        <div id="batchedGas" class="value">0</div>
+                        <div class="label">Batched Gas</div>
+                    </div>
+                    <div class="stat-card">
+                        <div id="gasSaved" class="value">0</div>
+                        <div class="label">Gas Saved</div>
+                    </div>
+                    <div class="stat-card">
+                        <div id="savingsPercent" class="value">0%</div>
+                        <div class="label">Savings</div>
+                    </div>
+                </div>
+                <div id="gasComparison" class="gas-comparison" style="display: none;">
+                    <h3>🎉 You Saved:</h3>
+                    <div id="totalSavings" class="savings">0 gas</div>
+                </div>
+            </div>
+
+            <!-- Activity Log Card -->
+            <div class="card" style="grid-column: 1 / -1;">
+                <h2><span class="icon">📜</span> Activity Log</h2>
+                <div id="logContainer" class="log-container">
+                    <div class="log-entry info">Welcome to Gas Fee Optimizer! Connect your wallet to get started.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let provider = null;
+        let signer = null;
+        let batchExecutor = null;
+        let sampleDApp = null;
+        let pendingCalls = [];
+        let gasStats = {
+            individual: 0,
+            batched: 0
+        };
+
+        // ABIs (simplified)
+        const BATCH_EXECUTOR_ABI = [
+            "function executeBatch((address target, uint256 value, bytes data)[] calls) payable returns (bytes[])",
+            "function executeBatchMeta((address from, (address target, uint256 value, bytes data)[] calls, uint256 nonce, uint256 deadline) request, bytes signature) returns (bytes[])",
+            "function getNonce(address account) view returns (uint256)",
+            "function getGasStats() view returns (uint256 totalSaved, uint256 batchCount)",
+            "function DOMAIN_SEPARATOR() view returns (bytes32)"
+        ];
+
+        const SAMPLE_DAPP_ABI = [
+            "function updateProfile(string username, string bio)",
+            "function createListing(string itemName, uint256 price) returns (uint256)",
+            "function getProfile(address user) view returns (tuple(string username, string bio, uint256 reputation, uint256 totalTransactions, bool isVerified))",
+            "function getStats() view returns (uint256 totalListings, uint256 totalBids, uint256 contractBalance)"
+        ];
+
+        // DOM Elements
+        const connectBtn = document.getElementById('connectBtn');
+        const loadContractsBtn = document.getElementById('loadContractsBtn');
+        const addToBatchBtn = document.getElementById('addToBatchBtn');
+        const executeBatchBtn = document.getElementById('executeBatchBtn');
+        const executeMetaBtn = document.getElementById('executeMetaBtn');
+        const clearBatchBtn = document.getElementById('clearBatchBtn');
+        const logContainer = document.getElementById('logContainer');
+        const batchItems = document.getElementById('batchItems');
+
+        // Logging
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.prepend(entry);
+        }
+
+        // Update status
+        async function updateStatus() {
+            if (!provider || !signer) return;
+
+            try {
+                const address = await signer.getAddress();
+                document.getElementById('walletStatus').textContent = 
+                    address.slice(0, 6) + '...' + address.slice(-4);
+                document.getElementById('walletStatus').className = 'value connected';
+
+                const network = await provider.getNetwork();
+                document.getElementById('networkStatus').textContent = 
+                    network.chainId === 31337n ? 'Hardhat' : network.name;
+
+                const balance = await provider.getBalance(address);
+                document.getElementById('balanceStatus').textContent = 
+                    parseFloat(ethers.utils.formatEther(balance)).toFixed(4) + ' ETH';
+
+                const gasPrice = await provider.getGasPrice();
+                document.getElementById('gasPrice').textContent = 
+                    Math.round(parseFloat(ethers.utils.formatUnits(gasPrice, 'gwei'))) + ' Gwei';
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        // Connect Wallet
+        connectBtn.addEventListener('click', async () => {
+            try {
+                if (typeof window.ethereum === 'undefined') {
+                    log('MetaMask not detected! Please install MetaMask.', 'error');
+                    return;
+                }
+
+                await window.ethereum.request({ method: 'eth_requestAccounts' });
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                signer = provider.getSigner();
+
+                log('Wallet connected successfully!', 'success');
+                connectBtn.textContent = 'Connected ✓';
+                connectBtn.disabled = true;
+
+                await updateStatus();
+
+                // Listen for account changes
+                window.ethereum.on('accountsChanged', updateStatus);
+                window.ethereum.on('chainChanged', () => window.location.reload());
+
+            } catch (e) {
+                log('Failed to connect: ' + e.message, 'error');
+            }
+        });
+
+        // Load Contracts
+        loadContractsBtn.addEventListener('click', async () => {
+            const batchAddr = document.getElementById('batchExecutorAddr').value;
+            const dappAddr = document.getElementById('sampleDAppAddr').value;
+
+            if (!batchAddr || !dappAddr) {
+                log('Please enter both contract addresses', 'error');
+                return;
+            }
+
+            try {
+                batchExecutor = new ethers.Contract(batchAddr, BATCH_EXECUTOR_ABI, signer);
+                sampleDApp = new ethers.Contract(dappAddr, SAMPLE_DAPP_ABI, signer);
+
+                // Test connection
+                await batchExecutor.getGasStats();
+                await sampleDApp.getStats();
+
+                log('Contracts loaded successfully!', 'success');
+                loadContractsBtn.textContent = 'Loaded ✓';
+                
+            } catch (e) {
+                log('Failed to load contracts: ' + e.message, 'error');
+            }
+        });
+
+        // Update batch display
+        function updateBatchDisplay() {
+            if (pendingCalls.length === 0) {
+                batchItems.innerHTML = '<p style="color: var(--text-muted); text-align: center;">No actions in batch</p>';
+                executeBatchBtn.disabled = true;
+                executeMetaBtn.disabled = true;
+            } else {
+                batchItems.innerHTML = pendingCalls.map((call, i) => `
+                    <div class="batch-item">
+                        <span>${call.description}</span>
+                        <span style="color: var(--text-muted);">~${call.estimatedGas} gas</span>
+                    </div>
+                `).join('');
+                executeBatchBtn.disabled = !batchExecutor;
+                executeMetaBtn.disabled = !batchExecutor;
+            }
+
+            // Update estimated individual gas
+            const totalIndividual = pendingCalls.reduce((sum, c) => sum + c.estimatedGas + 21000, 0);
+            document.getElementById('individualGas').textContent = totalIndividual.toLocaleString();
+        }
+
+        // Add to Batch
+        addToBatchBtn.addEventListener('click', () => {
+            if (!sampleDApp) {
+                log('Please load contracts first', 'error');
+                return;
+            }
+
+            const username = document.getElementById('username').value;
+            const bio = document.getElementById('bio').value;
+            const listingName = document.getElementById('listingName').value;
+            const listingPrice = document.getElementById('listingPrice').value;
+
+            if (username && bio) {
+                const data = sampleDApp.interface.encodeFunctionData('updateProfile', [username, bio]);
+                pendingCalls.push({
+                    target: sampleDApp.address,
+                    value: 0,
+                    data: data,
+                    description: `Update Profile: ${username}`,
+                    estimatedGas: 50000
+                });
+                log(`Added profile update: ${username}`, 'info');
+            }
+
+            if (listingName && listingPrice) {
+                const price = ethers.utils.parseEther(listingPrice);
+                const data = sampleDApp.interface.encodeFunctionData('createListing', [listingName, price]);
+                pendingCalls.push({
+                    target: sampleDApp.address,
+                    value: 0,
+                    data: data,
+                    description: `Create Listing: ${listingName} (${listingPrice} ETH)`,
+                    estimatedGas: 80000
+                });
+                log(`Added listing: ${listingName}`, 'info');
+            }
+
+            updateBatchDisplay();
+
+            // Clear inputs
+            document.getElementById('username').value = '';
+            document.getElementById('bio').value = '';
+            document.getElementById('listingName').value = '';
+            document.getElementById('listingPrice').value = '';
+        });
+
+        // Execute Batch
+        executeBatchBtn.addEventListener('click', async () => {
+            if (pendingCalls.length === 0) return;
+
+            try {
+                log('Executing batch transaction...', 'info');
+                executeBatchBtn.textContent = 'Executing...';
+                executeBatchBtn.disabled = true;
+
+                const calls = pendingCalls.map(c => ({
+                    target: c.target,
+                    value: c.value,
+                    data: c.data
+                }));
+
+                const tx = await batchExecutor.executeBatch(calls);
+                log(`Transaction submitted: ${tx.hash}`, 'info');
+
+                const receipt = await tx.wait();
+                log(`Batch executed! Gas used: ${receipt.gasUsed.toString()}`, 'success');
+
+                // Update gas stats
+                gasStats.individual = pendingCalls.reduce((sum, c) => sum + c.estimatedGas + 21000, 0);
+                gasStats.batched = receipt.gasUsed.toNumber();
+
+                document.getElementById('batchedGas').textContent = gasStats.batched.toLocaleString();
+                const saved = gasStats.individual - gasStats.batched;
+                document.getElementById('gasSaved').textContent = saved.toLocaleString();
+                document.getElementById('savingsPercent').textContent = 
+                    Math.round((saved / gasStats.individual) * 100) + '%';
+
+                document.getElementById('gasComparison').style.display = 'block';
+                document.getElementById('totalSavings').textContent = saved.toLocaleString() + ' gas';
+
+                pendingCalls = [];
+                updateBatchDisplay();
+
+            } catch (e) {
+                log('Batch execution failed: ' + e.message, 'error');
+            } finally {
+                executeBatchBtn.textContent = 'Execute Batch (Direct)';
+                executeBatchBtn.disabled = pendingCalls.length === 0;
+            }
+        });
+
+        // Execute Meta-Transaction
+        executeMetaBtn.addEventListener('click', async () => {
+            if (pendingCalls.length === 0) return;
+
+            try {
+                log('Preparing meta-transaction (gasless simulation)...', 'info');
+                executeMetaBtn.textContent = 'Signing...';
+                executeMetaBtn.disabled = true;
+
+                // Note: This is a simulation since we need a relayer
+                // In production, this signature would be sent to a relayer service
+
+                const address = await signer.getAddress();
+                const nonce = await batchExecutor.getNonce(address);
+                const deadline = Math.floor(Date.now() / 1000) + 3600;
+
+                log(`User nonce: ${nonce.toString()}`, 'info');
+                log('In production, this signature would be sent to a relayer service.', 'info');
+                log('The relayer would execute the transaction and pay the gas.', 'info');
+
+                // For demo, we'll just execute directly but log the meta-tx flow
+                const calls = pendingCalls.map(c => ({
+                    target: c.target,
+                    value: c.value,
+                    data: c.data
+                }));
+
+                const tx = await batchExecutor.executeBatch(calls);
+                const receipt = await tx.wait();
+
+                log(`Meta-transaction simulated! Gas: ${receipt.gasUsed.toString()}`, 'success');
+                log('In a real gasless scenario, the user pays ZERO gas!', 'success');
+
+                pendingCalls = [];
+                updateBatchDisplay();
+
+            } catch (e) {
+                log('Meta-tx failed: ' + e.message, 'error');
+            } finally {
+                executeMetaBtn.textContent = 'Execute as Meta-Tx (Gasless Simulation)';
+                executeMetaBtn.disabled = pendingCalls.length === 0;
+            }
+        });
+
+        // Clear Batch
+        clearBatchBtn.addEventListener('click', () => {
+            pendingCalls = [];
+            updateBatchDisplay();
+            log('Batch cleared', 'info');
+        });
+
+        // Initialize
+        updateBatchDisplay();
+    </script>
+</body>
+</html>
