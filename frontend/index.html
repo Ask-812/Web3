@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gas Fee Optimizer - Web3Assam</title>
-    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
     <style>
         :root {
             --primary: #6366f1;
@@ -405,6 +405,11 @@
     </div>
 
     <script>
+        // Check if ethers loaded
+        if (typeof ethers === 'undefined') {
+            alert('Error: ethers.js library failed to load. Please check your internet connection.');
+        }
+
         // State
         let provider = null;
         let signer = null;
@@ -462,7 +467,7 @@
 
                 const network = await provider.getNetwork();
                 document.getElementById('networkStatus').textContent = 
-                    network.chainId === 31337n ? 'Hardhat' : network.name;
+                    network.chainId === 31337 ? 'Hardhat' : (network.name || 'Chain ' + network.chainId);
 
                 const balance = await provider.getBalance(address);
                 document.getElementById('balanceStatus').textContent = 
@@ -479,12 +484,19 @@
         // Connect Wallet
         connectBtn.addEventListener('click', async () => {
             try {
+                log('Checking for MetaMask...', 'info');
+                
                 if (typeof window.ethereum === 'undefined') {
-                    log('MetaMask not detected! Please install MetaMask.', 'error');
+                    log('MetaMask not detected! Please install MetaMask extension.', 'error');
+                    alert('MetaMask is not installed. Please install it from https://metamask.io');
                     return;
                 }
 
-                await window.ethereum.request({ method: 'eth_requestAccounts' });
+                log('MetaMask found. Requesting account access...', 'info');
+                
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                log('Accounts received: ' + accounts[0], 'info');
+                
                 provider = new ethers.providers.Web3Provider(window.ethereum);
                 signer = provider.getSigner();
 
@@ -499,7 +511,11 @@
                 window.ethereum.on('chainChanged', () => window.location.reload());
 
             } catch (e) {
+                console.error('Connection error:', e);
                 log('Failed to connect: ' + e.message, 'error');
+                if (e.code === 4001) {
+                    log('You rejected the connection request', 'error');
+                }
             }
         });
 
