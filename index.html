@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gas Fee Optimizer - Web3Assam</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --compressed: #a855f7;
+            --bg-dark: #0f172a;
+            --bg-card: #1e293b;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: #334155;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+
+        header { text-align: center; margin-bottom: 2rem; }
+
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, var(--primary), #a855f7);
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent; color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle { color: var(--text-muted); font-size: 1.1rem; }
+
+        .badge {
+            display: inline-block; padding: 0.25rem 0.75rem;
+            background: var(--primary); border-radius: 9999px;
+            font-size: 0.8rem; margin-top: 0.75rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 1rem; padding: 1.5rem;
+        }
+
+        .card h2 {
+            font-size: 1.25rem; margin-bottom: 1rem;
+            display: flex; align-items: center; gap: 0.5rem;
+        }
+        .card h2 .icon { font-size: 1.5rem; }
+
+        .status-bar {
+            display: flex; justify-content: space-between;
+            background: var(--bg-dark); padding: 1rem;
+            border-radius: 0.5rem; margin-bottom: 1.5rem;
+        }
+        .status-item { text-align: center; }
+        .status-item .label { color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase; }
+        .status-item .value { font-size: 1.2rem; font-weight: bold; }
+        .status-item .value.connected { color: var(--success); }
+        .status-item .value.disconnected { color: var(--danger); }
+
+        button {
+            width: 100%; padding: 0.875rem 1.5rem;
+            border: none; border-radius: 0.5rem;
+            font-size: 1rem; font-weight: 600;
+            cursor: pointer; transition: all 0.2s;
+            margin-bottom: 0.75rem;
+        }
+        button:last-child { margin-bottom: 0; }
+        button.primary { background: var(--primary); color: white; }
+        button.primary:hover { background: var(--primary-dark); }
+        button.success { background: var(--success); color: white; }
+        button.warning { background: var(--warning); color: black; }
+        button.compressed { background: var(--compressed); color: white; }
+        button.danger { background: var(--danger); color: white; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .input-group { margin-bottom: 1rem; }
+        .input-group label { display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.9rem; }
+
+        input, textarea {
+            width: 100%; padding: 0.75rem;
+            background: var(--bg-dark); border: 1px solid var(--border);
+            border-radius: 0.5rem; color: var(--text); font-size: 1rem;
+        }
+        input:focus, textarea:focus { outline: none; border-color: var(--primary); }
+
+        .log-container {
+            background: var(--bg-dark); border-radius: 0.5rem;
+            padding: 1rem; max-height: 300px; overflow-y: auto;
+            font-family: monospace; font-size: 0.85rem;
+        }
+        .log-entry { padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+        .log-entry:last-child { border-bottom: none; }
+        .log-entry.success { color: var(--success); }
+        .log-entry.error { color: var(--danger); }
+        .log-entry.info { color: var(--primary); }
+
+        .stats-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr);
+            gap: 0.75rem; margin-top: 1rem;
+        }
+        .stat-card {
+            background: var(--bg-dark); padding: 0.75rem;
+            border-radius: 0.5rem; text-align: center;
+        }
+        .stat-card .value { font-size: 1.1rem; font-weight: bold; }
+        .stat-card .value.individual { color: var(--danger); }
+        .stat-card .value.standard { color: var(--primary); }
+        .stat-card .value.compressed-val { color: var(--compressed); }
+        .stat-card .label { color: var(--text-muted); font-size: 0.75rem; }
+
+        .batch-items {
+            background: var(--bg-dark); border-radius: 0.5rem;
+            padding: 1rem; margin-bottom: 1rem;
+        }
+        .batch-item {
+            display: flex; justify-content: space-between;
+            padding: 0.5rem 0; border-bottom: 1px solid var(--border);
+        }
+        .batch-item:last-child { border-bottom: none; }
+
+        /* Bar Chart */
+        .bar-chart { margin-top: 1rem; }
+        .bar-row {
+            display: flex; align-items: center; margin-bottom: 0.75rem; gap: 0.75rem;
+        }
+        .bar-label {
+            width: 100px; font-size: 0.8rem; font-weight: 600; text-align: right;
+            flex-shrink: 0;
+        }
+        .bar-container {
+            flex: 1; height: 36px; background: var(--bg-dark);
+            border-radius: 0.375rem; overflow: hidden; position: relative;
+        }
+        .bar-fill {
+            height: 100%; border-radius: 0.375rem;
+            transition: width 0.8s ease; display: flex;
+            align-items: center; padding: 0 0.75rem;
+            font-size: 0.8rem; font-weight: 700;
+            min-width: fit-content; white-space: nowrap;
+        }
+        .bar-fill.individual { background: linear-gradient(90deg, var(--danger), #dc2626); }
+        .bar-fill.standard { background: linear-gradient(90deg, var(--primary), #818cf8); }
+        .bar-fill.compressed { background: linear-gradient(90deg, var(--compressed), #c084fc); }
+
+        .savings-banner {
+            margin-top: 1rem; padding: 1rem;
+            background: linear-gradient(135deg, var(--success), #059669);
+            border-radius: 0.5rem; text-align: center;
+        }
+        .savings-banner h3 { font-size: 1rem; margin-bottom: 0.25rem; }
+        .savings-banner .savings { font-size: 1.75rem; font-weight: bold; }
+
+        .feature-tag {
+            display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-size: 0.7rem; font-weight: 600; margin-left: 0.5rem;
+        }
+        .feature-tag.novel { background: var(--compressed); color: white; }
+        .feature-tag.eip { background: var(--warning); color: black; }
+
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .loading { animation: pulse 1.5s infinite; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⛽ Gas Fee Optimizer</h1>
+            <p class="subtitle">Calldata Compression &bull; Context-Preserving Batching &bull; Cross-User Bundling</p>
+            <span class="badge">Web3Assam - KRITI 2026</span>
+        </header>
+
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="label">Wallet</div>
+                <div id="walletStatus" class="value disconnected">Not Connected</div>
+            </div>
+            <div class="status-item">
+                <div class="label">Network</div>
+                <div id="networkStatus" class="value">-</div>
+            </div>
+            <div class="status-item">
+                <div class="label">Balance</div>
+                <div id="balanceStatus" class="value">-</div>
+            </div>
+            <div class="status-item">
+                <div class="label">Gas Price</div>
+                <div id="gasPrice" class="value">-</div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <!-- Connection Card -->
+            <div class="card">
+                <h2><span class="icon">🔗</span> Connection</h2>
+                <button id="connectBtn" class="primary">Connect Wallet</button>
+                <div class="input-group">
+                    <label>BatchExecutor Address</label>
+                    <input type="text" id="batchExecutorAddr" placeholder="0x...">
+                </div>
+                <div class="input-group">
+                    <label>CompressedBatchExecutor Address</label>
+                    <input type="text" id="compressedBatchExecutorAddr" placeholder="0x...">
+                </div>
+                <div class="input-group">
+                    <label>SampleDApp Address</label>
+                    <input type="text" id="sampleDAppAddr" placeholder="0x...">
+                </div>
+                <div class="input-group">
+                    <label>Relayer URL</label>
+                    <input type="text" id="relayerUrl" placeholder="http://localhost:3000" value="http://localhost:3000">
+                </div>
+                <button id="loadContractsBtn" class="primary">Load Contracts</button>
+            </div>
+
+            <!-- Batch Builder Card -->
+            <div class="card">
+                <h2><span class="icon">📦</span> Batch Builder</h2>
+                <div class="input-group">
+                    <label>Username (Profile Update)</label>
+                    <input type="text" id="username" placeholder="Enter username">
+                </div>
+                <div class="input-group">
+                    <label>Bio</label>
+                    <input type="text" id="bio" placeholder="Enter bio">
+                </div>
+                <div class="input-group">
+                    <label>Listing Name</label>
+                    <input type="text" id="listingName" placeholder="NFT Art #1">
+                </div>
+                <div class="input-group">
+                    <label>Listing Price (ETH)</label>
+                    <input type="number" id="listingPrice" placeholder="0.1" step="0.01">
+                </div>
+                <button id="addToBatchBtn" class="primary">Add Actions to Batch</button>
+                <button id="quickDemoBtn" class="warning">⚡ Quick Demo (Load 5 Actions)</button>
+                <button id="quickDemo10Btn" class="compressed">🚀 Big Demo (Load 10 Actions)</button>
+            </div>
+
+            <!-- Pending Batch Card -->
+            <div class="card">
+                <h2><span class="icon">📋</span> Pending Batch (<span id="batchCount">0</span> actions)</h2>
+                <div id="batchItems" class="batch-items">
+                    <p style="color: var(--text-muted); text-align: center;">No actions in batch</p>
+                </div>
+                <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.75rem;">Choose execution mode:</p>
+                <button id="executeIndividualBtn" class="danger" disabled>
+                    🐌 Execute Individually (No Optimization)
+                </button>
+                <button id="executeBatchBtn" class="success" disabled>
+                    📦 Standard Batch
+                </button>
+                <button id="executeCompressedBtn" class="compressed" disabled>
+                    ⚡ Compressed Batch <span class="feature-tag novel">NOVEL</span>
+                </button>
+                <button id="executeMetaBtn" class="warning" disabled>
+                    🔐 Meta-Tx via Relayer (Gasless) <span class="feature-tag eip">EIP-712</span>
+                </button>
+                <button id="clearBatchBtn" class="primary">Clear Batch</button>
+            </div>
+
+            <!-- Gas Comparison Card -->
+            <div class="card">
+                <h2><span class="icon">📊</span> Gas Comparison</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div id="individualGas" class="value individual">-</div>
+                        <div class="label">🐌 Individual</div>
+                    </div>
+                    <div class="stat-card">
+                        <div id="batchedGas" class="value standard">-</div>
+                        <div class="label">📦 Standard Batch</div>
+                    </div>
+                    <div class="stat-card">
+                        <div id="compressedGas" class="value compressed-val">-</div>
+                        <div class="label">⚡ Compressed</div>
+                    </div>
+                </div>
+
+                <div class="bar-chart" id="barChart" style="display:none;">
+                    <div class="bar-row">
+                        <div class="bar-label" style="color: var(--danger);">Individual</div>
+                        <div class="bar-container">
+                            <div id="barIndividual" class="bar-fill individual" style="width:0%"></div>
+                        </div>
+                    </div>
+                    <div class="bar-row">
+                        <div class="bar-label" style="color: var(--primary);">Std Batch</div>
+                        <div class="bar-container">
+                            <div id="barStandard" class="bar-fill standard" style="width:0%"></div>
+                        </div>
+                    </div>
+                    <div class="bar-row">
+                        <div class="bar-label" style="color: var(--compressed);">Compressed</div>
+                        <div class="bar-container">
+                            <div id="barCompressed" class="bar-fill compressed" style="width:0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="savingsBanner" class="savings-banner" style="display: none;">
+                    <h3>🎉 Total Savings</h3>
+                    <div id="totalSavings" class="savings">-</div>
+                </div>
+            </div>
+
+            <!-- Activity Log -->
+            <div class="card" style="grid-column: 1 / -1;">
+                <h2><span class="icon">📜</span> Activity Log</h2>
+                <div id="logContainer" class="log-container">
+                    <div class="log-entry info">Welcome to Gas Fee Optimizer! Connect your wallet to get started.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        if (typeof ethers === 'undefined') {
+            alert('Error: ethers.js library failed to load. Please check your internet connection.');
+        }
+
+        // State
+        let provider = null;
+        let signer = null;
+        let batchExecutor = null;
+        let compressedBatchExecutor = null;
+        let sampleDApp = null;
+        let pendingCalls = [];
+        let gasResults = { individual: null, standard: null, compressed: null };
+
+        // ABIs
+        const BATCH_EXECUTOR_ABI = [
+            "function executeBatch((address target, uint256 value, bytes data)[] calls) payable returns (bytes[])",
+            "function executeBatchMeta((address from, (address target, uint256 value, bytes data)[] calls, uint256 nonce, uint256 deadline) request, bytes signature) returns (bytes[])",
+            "function getNonce(address account) view returns (uint256)",
+            "function getGasStats() view returns (uint256 totalSaved, uint256 batchCount)",
+            "function DOMAIN_SEPARATOR() view returns (bytes32)"
+        ];
+
+        const COMPRESSED_BATCH_EXECUTOR_ABI = [
+            "function executeSameTarget(address target, bytes[] calldata dataArray) external payable returns (bytes[] memory)",
+            "function executeCompressedBatch(address[] calldata targets, (uint8 targetIndex, uint256 value, bytes data)[] calldata calls) external payable returns (bytes[] memory)",
+            "function executeWithContext(address target, bytes[] calldata dataArray) external payable returns (bytes[] memory)",
+            "function executeBundledBatches((address user, address target, bytes[] calls)[] calldata batches) external payable returns (bytes[][] memory)",
+            "function estimateSavings(uint256 numCalls, uint256 numUniqueTargets) external pure returns (uint256 calldataSaved, uint256 approxGasSaved)"
+        ];
+
+        const SAMPLE_DAPP_ABI = [
+            "function updateProfile(string username, string bio)",
+            "function createListing(string itemName, uint256 price) returns (uint256)",
+            "function getProfile(address user) view returns (tuple(string username, string bio, uint256 reputation, uint256 totalTransactions, bool isVerified))",
+            "function getStats() view returns (uint256 totalListings, uint256 totalBids, uint256 contractBalance)"
+        ];
+
+        // DOM Elements
+        const connectBtn = document.getElementById('connectBtn');
+        const loadContractsBtn = document.getElementById('loadContractsBtn');
+        const addToBatchBtn = document.getElementById('addToBatchBtn');
+        const executeIndividualBtn = document.getElementById('executeIndividualBtn');
+        const executeBatchBtn = document.getElementById('executeBatchBtn');
+        const executeCompressedBtn = document.getElementById('executeCompressedBtn');
+        const executeMetaBtn = document.getElementById('executeMetaBtn');
+        const clearBatchBtn = document.getElementById('clearBatchBtn');
+        const logContainer = document.getElementById('logContainer');
+        const batchItems = document.getElementById('batchItems');
+
+        // Helpers
+        async function estimateIndividualGas(target, data) {
+            if (!provider || !signer) return 100000;
+            try {
+                const address = await signer.getAddress();
+                const estimate = await provider.estimateGas({ from: address, to: target, data });
+                return parseInt(estimate.toString());
+            } catch (e) {
+                return 100000;
+            }
+        }
+
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.prepend(entry);
+        }
+
+        async function updateStatus() {
+            if (!provider || !signer) return;
+            try {
+                const address = await signer.getAddress();
+                document.getElementById('walletStatus').textContent = address.slice(0, 6) + '...' + address.slice(-4);
+                document.getElementById('walletStatus').className = 'value connected';
+                const network = await provider.getNetwork();
+                document.getElementById('networkStatus').textContent =
+                    network.chainId === 31337 ? 'Hardhat' : (network.name || 'Chain ' + network.chainId);
+                const balance = await provider.getBalance(address);
+                document.getElementById('balanceStatus').textContent =
+                    parseFloat(ethers.utils.formatEther(balance)).toFixed(4) + ' ETH';
+                const gasPrice = await provider.getGasPrice();
+                document.getElementById('gasPrice').textContent =
+                    Math.round(parseFloat(ethers.utils.formatUnits(gasPrice, 'gwei'))) + ' Gwei';
+            } catch (e) { console.error(e); }
+        }
+
+        function updateBarChart() {
+            const vals = [gasResults.individual, gasResults.standard, gasResults.compressed].filter(v => v !== null);
+            if (vals.length === 0) return;
+            const maxVal = Math.max(...vals);
+            document.getElementById('barChart').style.display = 'block';
+
+            if (gasResults.individual !== null) {
+                const pct = (gasResults.individual / maxVal) * 100;
+                const bar = document.getElementById('barIndividual');
+                bar.style.width = pct + '%';
+                bar.textContent = gasResults.individual.toLocaleString() + ' gas';
+                document.getElementById('individualGas').textContent = gasResults.individual.toLocaleString();
+            }
+            if (gasResults.standard !== null) {
+                const pct = (gasResults.standard / maxVal) * 100;
+                const bar = document.getElementById('barStandard');
+                bar.style.width = pct + '%';
+                bar.textContent = gasResults.standard.toLocaleString() + ' gas';
+                document.getElementById('batchedGas').textContent = gasResults.standard.toLocaleString();
+            }
+            if (gasResults.compressed !== null) {
+                const pct = (gasResults.compressed / maxVal) * 100;
+                const bar = document.getElementById('barCompressed');
+                bar.style.width = pct + '%';
+                bar.textContent = gasResults.compressed.toLocaleString() + ' gas';
+                document.getElementById('compressedGas').textContent = gasResults.compressed.toLocaleString();
+            }
+
+            // Show savings banner
+            if (gasResults.individual && (gasResults.standard || gasResults.compressed)) {
+                const best = Math.min(gasResults.standard || Infinity, gasResults.compressed || Infinity);
+                const saved = gasResults.individual - best;
+                const pct = Math.round((saved / gasResults.individual) * 100);
+                if (saved > 0) {
+                    document.getElementById('savingsBanner').style.display = 'block';
+                    document.getElementById('totalSavings').textContent =
+                        saved.toLocaleString() + ' gas saved (' + pct + '% reduction)';
+                }
+            }
+        }
+
+        // Wallet Connection
+        connectBtn.addEventListener('click', async () => {
+            try {
+                if (typeof window.ethereum === 'undefined') {
+                    log('MetaMask not detected! Install it from metamask.io', 'error');
+                    return;
+                }
+                await window.ethereum.request({ method: 'eth_requestAccounts' });
+                provider = new ethers.providers.Web3Provider(window.ethereum);
+                signer = provider.getSigner();
+                log('Wallet connected!', 'success');
+                connectBtn.textContent = 'Connected ✓';
+                connectBtn.disabled = true;
+                await updateStatus();
+                window.ethereum.on('accountsChanged', updateStatus);
+                window.ethereum.on('chainChanged', () => window.location.reload());
+            } catch (e) {
+                log('Connection failed: ' + e.message, 'error');
+            }
+        });
+
+        // Auto-load deployment
+        async function loadDeployment() {
+            // Priority 1: URL params (for hosted version)
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('batch') && params.get('dapp')) {
+                document.getElementById('batchExecutorAddr').value = params.get('batch') || '';
+                document.getElementById('compressedBatchExecutorAddr').value = params.get('compressed') || '';
+                document.getElementById('sampleDAppAddr').value = params.get('dapp') || '';
+                if (params.get('relayer')) document.getElementById('relayerUrl').value = params.get('relayer');
+                log('Loaded contract addresses from URL', 'info');
+                return;
+            }
+
+            // Priority 2: Embedded config (set after deployment)
+            const DEPLOYED = {
+                BatchExecutor: "0x2c61E8959b5602C1DD9399fB16ABE9182fc7E3E7",
+                CompressedBatchExecutor: "0x01eAA34feF31F33E5EB15C5084569C1399B9C0CB",
+                SampleDApp: "0x47FF1aCB49cf23C28AA5887FC3bb5073D566f938",
+            };
+            if (DEPLOYED.BatchExecutor) {
+                document.getElementById('batchExecutorAddr').value = DEPLOYED.BatchExecutor || '';
+                document.getElementById('compressedBatchExecutorAddr').value = DEPLOYED.CompressedBatchExecutor || '';
+                document.getElementById('sampleDAppAddr').value = DEPLOYED.SampleDApp || '';
+                log('Loaded embedded deployment addresses', 'info');
+                return;
+            }
+
+            // Priority 3: Local server deployment file
+            try {
+                const res = await fetch('/deployments/localhost.json');
+                if (res.ok) {
+                    const info = await res.json();
+                    document.getElementById('batchExecutorAddr').value = info.contracts.BatchExecutor || '';
+                    document.getElementById('compressedBatchExecutorAddr').value = info.contracts.CompressedBatchExecutor || '';
+                    document.getElementById('sampleDAppAddr').value = info.contracts.SampleDApp || '';
+                    log('Auto-loaded deployment addresses', 'info');
+                }
+            } catch (e) {}
+        }
+        loadDeployment();
+
+        // Load Contracts
+        loadContractsBtn.addEventListener('click', async () => {
+            const batchAddr = document.getElementById('batchExecutorAddr').value.trim();
+            const compressedAddr = document.getElementById('compressedBatchExecutorAddr').value.trim();
+            const dappAddr = document.getElementById('sampleDAppAddr').value.trim();
+
+            if (!dappAddr || !ethers.utils.isAddress(dappAddr)) {
+                log('Please enter a valid SampleDApp address', 'error');
+                return;
+            }
+
+            try {
+                sampleDApp = new ethers.Contract(dappAddr, SAMPLE_DAPP_ABI, signer);
+                await sampleDApp.getStats();
+                log('SampleDApp loaded', 'success');
+
+                if (batchAddr && ethers.utils.isAddress(batchAddr)) {
+                    batchExecutor = new ethers.Contract(batchAddr, BATCH_EXECUTOR_ABI, signer);
+                    await batchExecutor.getGasStats();
+                    log('BatchExecutor loaded', 'success');
+                }
+
+                if (compressedAddr && ethers.utils.isAddress(compressedAddr)) {
+                    compressedBatchExecutor = new ethers.Contract(compressedAddr, COMPRESSED_BATCH_EXECUTOR_ABI, signer);
+                    log('CompressedBatchExecutor loaded', 'success');
+                }
+
+                loadContractsBtn.textContent = 'Loaded ✓';
+                updateBatchDisplay();
+
+                // Configure relayer
+                const relayerUrl = document.getElementById('relayerUrl').value;
+                if (relayerUrl) {
+                    try {
+                        await fetch(`${relayerUrl}/config/contracts`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ batchExecutor: batchAddr, compressedBatchExecutor: compressedAddr })
+                        });
+                        log('Relayer configured', 'info');
+                    } catch (e) {
+                        log('Relayer not running — start it for meta-tx', 'info');
+                    }
+                }
+            } catch (e) {
+                log('Failed to load contracts: ' + e.message, 'error');
+            }
+        });
+
+        // Batch Display
+        function updateBatchDisplay() {
+            document.getElementById('batchCount').textContent = pendingCalls.length;
+            if (pendingCalls.length === 0) {
+                batchItems.innerHTML = '<p style="color: var(--text-muted); text-align: center;">No actions in batch</p>';
+                executeIndividualBtn.disabled = true;
+                executeBatchBtn.disabled = true;
+                executeCompressedBtn.disabled = true;
+                executeMetaBtn.disabled = true;
+            } else {
+                batchItems.innerHTML = '';
+                pendingCalls.forEach((call) => {
+                    const div = document.createElement('div');
+                    div.className = 'batch-item';
+                    const desc = document.createElement('span');
+                    desc.textContent = call.description;
+                    const gas = document.createElement('span');
+                    gas.style.color = 'var(--text-muted)';
+                    gas.textContent = '~' + call.estimatedGas.toLocaleString() + ' gas';
+                    div.appendChild(desc);
+                    div.appendChild(gas);
+                    batchItems.appendChild(div);
+                });
+                executeIndividualBtn.disabled = !sampleDApp;
+                executeBatchBtn.disabled = !batchExecutor;
+                executeCompressedBtn.disabled = !compressedBatchExecutor;
+                executeMetaBtn.disabled = !batchExecutor;
+            }
+            const totalIndividual = pendingCalls.reduce((sum, c) => sum + c.estimatedGas, 0);
+            document.getElementById('individualGas').textContent = totalIndividual.toLocaleString();
+        }
+
+        // Add to Batch
+        addToBatchBtn.addEventListener('click', async () => {
+            if (!sampleDApp) { log('Load contracts first', 'error'); return; }
+            const username = document.getElementById('username').value.trim();
+            const bio = document.getElementById('bio').value.trim();
+            const listingName = document.getElementById('listingName').value.trim();
+            const listingPrice = document.getElementById('listingPrice').value.trim();
+
+            if (!username && !bio && !listingName && !listingPrice) {
+                log('Fill in at least one field', 'error'); return;
+            }
+            if (listingPrice && (isNaN(parseFloat(listingPrice)) || parseFloat(listingPrice) <= 0)) {
+                log('Price must be positive', 'error'); return;
+            }
+
+            if (username && bio) {
+                const data = sampleDApp.interface.encodeFunctionData('updateProfile', [username, bio]);
+                const gasEst = await estimateIndividualGas(sampleDApp.address, data);
+                pendingCalls.push({ target: sampleDApp.address, value: 0, data, description: `Profile: ${username}`, estimatedGas: gasEst });
+                log(`Added profile update: ${username}`, 'info');
+            }
+            if (listingName && listingPrice) {
+                const price = ethers.utils.parseEther(listingPrice);
+                const data = sampleDApp.interface.encodeFunctionData('createListing', [listingName, price]);
+                const gasEst = await estimateIndividualGas(sampleDApp.address, data);
+                pendingCalls.push({ target: sampleDApp.address, value: 0, data, description: `Listing: ${listingName} (${listingPrice} ETH)`, estimatedGas: gasEst });
+                log(`Added listing: ${listingName}`, 'info');
+            }
+            updateBatchDisplay();
+            document.getElementById('username').value = '';
+            document.getElementById('bio').value = '';
+            document.getElementById('listingName').value = '';
+            document.getElementById('listingPrice').value = '';
+        });
+
+        // Quick Demo
+        async function loadDemoActions(count) {
+            if (!sampleDApp) { log('Load contracts first', 'error'); return; }
+            log(`Loading ${count} demo actions...`, 'info');
+
+            const actions = [
+                { fn: 'updateProfile', args: ['Alice', 'Web3 Developer from Assam'], desc: 'Profile: Alice' },
+                { fn: 'createListing', args: ['Digital Art #1', ethers.utils.parseEther('0.1')], desc: 'Listing: Digital Art #1' },
+                { fn: 'createListing', args: ['Digital Art #2', ethers.utils.parseEther('0.2')], desc: 'Listing: Digital Art #2' },
+                { fn: 'createListing', args: ['Digital Art #3', ethers.utils.parseEther('0.3')], desc: 'Listing: Digital Art #3' },
+                { fn: 'createListing', args: ['Digital Art #4', ethers.utils.parseEther('0.5')], desc: 'Listing: Digital Art #4' },
+                { fn: 'updateProfile', args: ['Bob', 'NFT Collector & Trader'], desc: 'Profile: Bob' },
+                { fn: 'createListing', args: ['Music NFT #1', ethers.utils.parseEther('0.15')], desc: 'Listing: Music NFT #1' },
+                { fn: 'createListing', args: ['Music NFT #2', ethers.utils.parseEther('0.25')], desc: 'Listing: Music NFT #2' },
+                { fn: 'createListing', args: ['GameItem #1', ethers.utils.parseEther('0.05')], desc: 'Listing: GameItem #1' },
+                { fn: 'createListing', args: ['GameItem #2', ethers.utils.parseEther('0.08')], desc: 'Listing: GameItem #2' },
+            ];
+
+            for (let i = 0; i < Math.min(count, actions.length); i++) {
+                const action = actions[i];
+                const data = sampleDApp.interface.encodeFunctionData(action.fn, action.args);
+                const gasEst = await estimateIndividualGas(sampleDApp.address, data);
+                pendingCalls.push({ target: sampleDApp.address, value: 0, data, description: action.desc, estimatedGas: gasEst });
+            }
+            log(`Loaded ${count} demo actions`, 'success');
+            updateBatchDisplay();
+        }
+
+        document.getElementById('quickDemoBtn').addEventListener('click', () => loadDemoActions(5));
+        document.getElementById('quickDemo10Btn').addEventListener('click', () => loadDemoActions(10));
+
+        // Execute Individually (baseline)
+        executeIndividualBtn.addEventListener('click', async () => {
+            if (pendingCalls.length === 0) return;
+            try {
+                log('Executing each transaction individually (no optimization)...', 'info');
+                executeIndividualBtn.textContent = 'Executing...';
+                executeIndividualBtn.disabled = true;
+
+                let totalGas = 0;
+                for (let i = 0; i < pendingCalls.length; i++) {
+                    const call = pendingCalls[i];
+                    log(`  [${i+1}/${pendingCalls.length}] ${call.description}...`, 'info');
+                    const tx = await signer.sendTransaction({ to: call.target, data: call.data, value: call.value });
+                    const receipt = await tx.wait();
+                    totalGas += parseInt(receipt.gasUsed.toString());
+                    log(`  Done - Gas: ${receipt.gasUsed.toString()}`, 'success');
+                }
+
+                gasResults.individual = totalGas;
+                log(`Individual total: ${totalGas.toLocaleString()} gas (${pendingCalls.length} separate txs)`, 'success');
+                updateBarChart();
+                pendingCalls = [];
+                updateBatchDisplay();
+            } catch (e) {
+                log('Individual execution failed: ' + e.message, 'error');
+            } finally {
+                executeIndividualBtn.textContent = '🐌 Execute Individually (No Optimization)';
+                executeIndividualBtn.disabled = pendingCalls.length === 0;
+            }
+        });
+
+        // Execute Standard Batch
+        executeBatchBtn.addEventListener('click', async () => {
+            if (pendingCalls.length === 0) return;
+            try {
+                log('Executing standard batch...', 'info');
+                executeBatchBtn.textContent = 'Executing...';
+                executeBatchBtn.disabled = true;
+
+                const calls = pendingCalls.map(c => ({ target: c.target, value: c.value, data: c.data }));
+                const tx = await batchExecutor.executeBatch(calls);
+                const receipt = await tx.wait();
+
+                gasResults.standard = parseInt(receipt.gasUsed.toString());
+                gasResults.individual = gasResults.individual || pendingCalls.reduce((s, c) => s + c.estimatedGas, 0);
+                log(`Standard batch: ${receipt.gasUsed.toString()} gas (1 tx for ${pendingCalls.length} calls)`, 'success');
+                updateBarChart();
+                pendingCalls = [];
+                updateBatchDisplay();
+            } catch (e) {
+                log('Batch failed: ' + e.message, 'error');
+            } finally {
+                executeBatchBtn.textContent = '📦 Standard Batch';
+                executeBatchBtn.disabled = pendingCalls.length === 0;
+            }
+        });
+
+        // Execute Compressed Batch
+        executeCompressedBtn.addEventListener('click', async () => {
+            if (pendingCalls.length === 0) return;
+            try {
+                log('Executing compressed batch (calldata optimized)...', 'info');
+                executeCompressedBtn.textContent = 'Executing...';
+                executeCompressedBtn.disabled = true;
+
+                const targets = [...new Set(pendingCalls.map(c => c.target))];
+                let receipt;
+
+                if (targets.length === 1) {
+                    const dataArray = pendingCalls.map(c => c.data);
+                    const tx = await compressedBatchExecutor.executeSameTarget(targets[0], dataArray);
+                    receipt = await tx.wait();
+                    log('Used executeSameTarget (single target optimization)', 'info');
+                } else {
+                    const targetList = targets;
+                    const calls = pendingCalls.map(c => ({
+                        targetIndex: targets.indexOf(c.target),
+                        value: c.value,
+                        data: c.data
+                    }));
+                    const tx = await compressedBatchExecutor.executeCompressedBatch(targetList, calls);
+                    receipt = await tx.wait();
+                    log(`Used executeCompressedBatch (${targets.length} unique targets)`, 'info');
+                }
+
+                gasResults.compressed = parseInt(receipt.gasUsed.toString());
+                gasResults.individual = gasResults.individual || pendingCalls.reduce((s, c) => s + c.estimatedGas, 0);
+                log(`Compressed batch: ${receipt.gasUsed.toString()} gas (1 tx, calldata optimized)`, 'success');
+                updateBarChart();
+                pendingCalls = [];
+                updateBatchDisplay();
+            } catch (e) {
+                log('Compressed batch failed: ' + e.message, 'error');
+            } finally {
+                executeCompressedBtn.textContent = '⚡ Compressed Batch';
+                executeCompressedBtn.disabled = pendingCalls.length === 0;
+            }
+        });
+
+        // Execute Meta-Transaction
+        executeMetaBtn.addEventListener('click', async () => {
+            if (pendingCalls.length === 0) return;
+            try {
+                log('Preparing EIP-712 meta-transaction...', 'info');
+                executeMetaBtn.textContent = 'Signing...';
+                executeMetaBtn.disabled = true;
+
+                const address = await signer.getAddress();
+                const nonce = await batchExecutor.getNonce(address);
+                const deadline = Math.floor(Date.now() / 1000) + 3600;
+
+                const domain = {
+                    name: 'GasOptimizer',
+                    version: '1',
+                    chainId: (await provider.getNetwork()).chainId,
+                    verifyingContract: batchExecutor.address
+                };
+
+                const calls = pendingCalls.map(c => ({ target: c.target, value: c.value, data: c.data }));
+                const callHashes = calls.map(c =>
+                    ethers.utils.keccak256(ethers.utils.defaultAbiCoder.encode(
+                        ['address', 'uint256', 'bytes32'],
+                        [c.target, c.value, ethers.utils.keccak256(c.data)]
+                    ))
+                );
+                const callsHash = ethers.utils.keccak256(
+                    ethers.utils.solidityPack(callHashes.map(() => 'bytes32'), callHashes)
+                );
+
+                const types = {
+                    BatchExecution: [
+                        { name: 'from', type: 'address' },
+                        { name: 'callsHash', type: 'bytes32' },
+                        { name: 'nonce', type: 'uint256' },
+                        { name: 'deadline', type: 'uint256' }
+                    ]
+                };
+
+                const value = { from: address, callsHash, nonce, deadline };
+                log('Requesting EIP-712 signature (check MetaMask)...', 'info');
+                const signature = await signer._signTypedData(domain, types, value);
+                log('Signature obtained, forwarding to relayer...', 'success');
+                log('USER pays ZERO gas — relayer covers the cost!', 'info');
+
+                const relayerUrl = document.getElementById('relayerUrl').value || 'http://localhost:3000';
+                const response = await fetch(`${relayerUrl}/relay/batch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        from: address,
+                        calls: calls.map(c => ({ target: c.target, value: c.value.toString(), data: c.data })),
+                        nonce: nonce.toString(),
+                        deadline, signature
+                    })
+                });
+
+                const result = await response.json();
+                if (!result.success) throw new Error(result.error);
+
+                gasResults.standard = parseInt(result.data.gasUsed);
+                gasResults.individual = gasResults.individual || pendingCalls.reduce((s, c) => s + c.estimatedGas, 0);
+                log(`Relayer tx: ${result.data.transactionHash}`, 'success');
+                log(`Gas used by relayer: ${result.data.gasUsed} — USER paid ZERO!`, 'success');
+                updateBarChart();
+                pendingCalls = [];
+                updateBatchDisplay();
+            } catch (e) {
+                log('Meta-tx failed: ' + e.message, 'error');
+            } finally {
+                executeMetaBtn.textContent = '🔐 Meta-Tx via Relayer (Gasless)';
+                executeMetaBtn.disabled = pendingCalls.length === 0;
+            }
+        });
+
+        // Clear
+        clearBatchBtn.addEventListener('click', () => {
+            pendingCalls = [];
+            gasResults = { individual: null, standard: null, compressed: null };
+            document.getElementById('barChart').style.display = 'none';
+            document.getElementById('savingsBanner').style.display = 'none';
+            document.getElementById('individualGas').textContent = '-';
+            document.getElementById('batchedGas').textContent = '-';
+            document.getElementById('compressedGas').textContent = '-';
+            document.getElementById('barIndividual').style.width = '0%';
+            document.getElementById('barStandard').style.width = '0%';
+            document.getElementById('barCompressed').style.width = '0%';
+            updateBatchDisplay();
+            log('Batch and results cleared', 'info');
+        });
+
+        updateBatchDisplay();
+    </script>
+</body>
+</html>
