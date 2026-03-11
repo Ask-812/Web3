@@ -386,16 +386,25 @@
             };
         }
 
+        // Helper: detect if error is a rate-limit / RPC throttle
+        function isRateLimitError(e) {
+            const msg = (e.message || '') + (e.reason || '') + (e.code || '');
+            return msg.includes('too many errors') || msg.includes('retrying in') ||
+                   msg.includes('-32002') || msg.includes('-32005') ||
+                   msg.includes('rate limit') || msg.includes('Too Many') ||
+                   msg.includes('REQUEST_TIMEOUT') || msg.includes('TIMEOUT') ||
+                   msg.includes('limit exceeded') || msg.includes('throttl');
+        }
+
         // Helper: send tx with retry on rate-limit errors
-        async function sendWithRetry(sendFn, maxRetries = 3) {
+        async function sendWithRetry(sendFn, maxRetries = 5) {
             for (let attempt = 0; attempt < maxRetries; attempt++) {
                 try {
                     return await sendFn();
                 } catch (e) {
-                    const msg = e.message || '';
-                    if (msg.includes('too many errors') || msg.includes('retrying in') || msg.includes('-32002')) {
-                        const waitSec = 10 * (attempt + 1);
-                        log(`  Rate limited, waiting ${waitSec}s before retry...`, 'info');
+                    if (isRateLimitError(e) && attempt < maxRetries - 1) {
+                        const waitSec = 10 + 10 * attempt;
+                        log(`  Rate limited, waiting ${waitSec}s before retry (${attempt+1}/${maxRetries})...`, 'info');
                         await new Promise(r => setTimeout(r, waitSec * 1000));
                         continue;
                     }
@@ -403,6 +412,56 @@
                 }
             }
             throw new Error('Transaction failed after retries — MetaMask RPC is heavily throttled');
+        }
+
+        // Helper: execute pending calls via meta-tx relayer (reusable fallback)
+        async function executeViaRelayer(label) {
+            if (!batchExecutor) throw new Error('BatchExecutor not loaded');
+            const address = await signer.getAddress();
+            const readBE = readProvider ? batchExecutor.connect(readProvider) : batchExecutor;
+            const nonce = await readBE.getNonce(address);
+            const deadline = Math.floor(Date.now() / 1000) + 3600;
+            const p = readProvider || provider;
+
+            const domain = {
+                name: 'GasOptimizer', version: '1',
+                chainId: (await p.getNetwork()).chainId,
+                verifyingContract: batchExecutor.address
+            };
+            const calls = pendingCalls.map(c => ({ target: c.target, value: c.value, data: c.data }));
+            const callHashes = calls.map(c =>
+                ethers.utils.keccak256(ethers.utils.defaultAbiCoder.encode(
+                    ['address', 'uint256', 'bytes32'],
+                    [c.target, c.value, ethers.utils.keccak256(c.data)]
+                ))
+            );
+            const callsHash = ethers.utils.keccak256(
+                ethers.utils.solidityPack(callHashes.map(() => 'bytes32'), callHashes)
+            );
+            const types = { BatchExecution: [
+                { name: 'from', type: 'address' }, { name: 'callsHash', type: 'bytes32' },
+                { name: 'nonce', type: 'uint256' }, { name: 'deadline', type: 'uint256' }
+            ] };
+            const value = { from: address, callsHash, nonce, deadline };
+
+            log(`${label}: Signing gasless meta-transaction (EIP-712)...`, 'info');
+            const signature = await signer._signTypedData(domain, types, value);
+            log('Signature obtained, forwarding to relayer...', 'success');
+            log('USER pays ZERO gas — relayer covers the cost!', 'info');
+
+            const relayerUrl = document.getElementById('relayerUrl').value || 'https://relayer-sigma.vercel.app';
+            const response = await fetch(`${relayerUrl}/relay/batch`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    from: address,
+                    calls: calls.map(c => ({ target: c.target, value: c.value.toString(), data: c.data })),
+                    nonce: nonce.toString(), deadline, signature
+                })
+            });
+            const result = await response.json();
+            if (!result.success) throw new Error(result.error);
+            return result;
         }
 
         // ABIs
@@ -649,19 +708,15 @@
                 loadContractsBtn.textContent = 'Loaded ✓';
                 updateBatchDisplay();
 
-                // Configure relayer
+                // Check relayer availability (non-blocking)
                 const relayerUrl = document.getElementById('relayerUrl').value;
                 if (relayerUrl) {
-                    try {
-                        await fetch(`${relayerUrl}/config/contracts`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ batchExecutor: batchAddr, compressedBatchExecutor: compressedAddr })
-                        });
-                        log('Relayer configured', 'info');
-                    } catch (e) {
-                        log('Relayer not running — start it for meta-tx', 'info');
-                    }
+                    const ac = new AbortController();
+                    const tid = setTimeout(() => ac.abort(), 5000);
+                    fetch(`${relayerUrl}/health`, { signal: ac.signal })
+                        .then(r => r.json())
+                        .then(d => { clearTimeout(tid); log('Relayer online ✓', 'success'); })
+                        .catch(() => { clearTimeout(tid); log('Relayer may be cold-starting (will warm on first meta-tx)', 'info'); });
                 }
             } catch (e) {
                 log('Failed to load contracts: ' + e.message, 'error');
@@ -796,7 +851,22 @@
                 pendingCalls = [];
                 updateBatchDisplay();
             } catch (e) {
-                log('Individual execution failed: ' + e.message, 'error');
+                if (isRateLimitError(e)) {
+                    log('Direct execution rate-limited. Auto-switching to gasless meta-tx via relayer...', 'info');
+                    try {
+                        const result = await executeViaRelayer('Individual fallback');
+                        gasResults.individual = parseInt(result.data.gasUsed);
+                        log(`Relayer tx: ${result.data.transactionHash}`, 'success');
+                        log(`Gas used by relayer: ${result.data.gasUsed} — USER paid ZERO!`, 'success');
+                        updateBarChart();
+                        pendingCalls = [];
+                        updateBatchDisplay();
+                    } catch (e2) {
+                        log('Fallback meta-tx also failed: ' + e2.message, 'error');
+                    }
+                } else {
+                    log('Individual execution failed: ' + e.message, 'error');
+                }
             } finally {
                 executeIndividualBtn.textContent = '🐌 Execute Individually (No Optimization)';
                 executeIndividualBtn.disabled = pendingCalls.length === 0;
@@ -827,7 +897,23 @@
                 pendingCalls = [];
                 updateBatchDisplay();
             } catch (e) {
-                log('Batch failed: ' + e.message, 'error');
+                if (isRateLimitError(e)) {
+                    log('Batch rate-limited. Auto-switching to gasless meta-tx via relayer...', 'info');
+                    try {
+                        const result = await executeViaRelayer('Batch fallback');
+                        gasResults.standard = parseInt(result.data.gasUsed);
+                        gasResults.individual = gasResults.individual || pendingCalls.reduce((s, c) => s + c.estimatedGas, 0);
+                        log(`Relayer tx: ${result.data.transactionHash}`, 'success');
+                        log(`Gas used by relayer: ${result.data.gasUsed} — USER paid ZERO!`, 'success');
+                        updateBarChart();
+                        pendingCalls = [];
+                        updateBatchDisplay();
+                    } catch (e2) {
+                        log('Fallback meta-tx also failed: ' + e2.message, 'error');
+                    }
+                } else {
+                    log('Batch failed: ' + e.message, 'error');
+                }
             } finally {
                 executeBatchBtn.textContent = '📦 Standard Batch';
                 executeBatchBtn.disabled = pendingCalls.length === 0;
@@ -878,7 +964,23 @@
                 pendingCalls = [];
                 updateBatchDisplay();
             } catch (e) {
-                log('Compressed batch failed: ' + e.message, 'error');
+                if (isRateLimitError(e)) {
+                    log('Compressed batch rate-limited. Auto-switching to gasless meta-tx via relayer...', 'info');
+                    try {
+                        const result = await executeViaRelayer('Compressed fallback');
+                        gasResults.compressed = parseInt(result.data.gasUsed);
+                        gasResults.individual = gasResults.individual || pendingCalls.reduce((s, c) => s + c.estimatedGas, 0);
+                        log(`Relayer tx: ${result.data.transactionHash}`, 'success');
+                        log(`Gas used by relayer: ${result.data.gasUsed} — USER paid ZERO!`, 'success');
+                        updateBarChart();
+                        pendingCalls = [];
+                        updateBatchDisplay();
+                    } catch (e2) {
+                        log('Fallback meta-tx also failed: ' + e2.message, 'error');
+                    }
+                } else {
+                    log('Compressed batch failed: ' + e.message, 'error');
+                }
             } finally {
                 executeCompressedBtn.textContent = '⚡ Compressed Batch';
                 executeCompressedBtn.disabled = pendingCalls.length === 0;
@@ -893,59 +995,7 @@
                 executeMetaBtn.textContent = 'Signing...';
                 executeMetaBtn.disabled = true;
 
-                const address = await signer.getAddress();
-                const readBE = readProvider ? batchExecutor.connect(readProvider) : batchExecutor;
-                const nonce = await readBE.getNonce(address);
-                const deadline = Math.floor(Date.now() / 1000) + 3600;
-                const p = readProvider || provider;
-
-                const domain = {
-                    name: 'GasOptimizer',
-                    version: '1',
-                    chainId: (await p.getNetwork()).chainId,
-                    verifyingContract: batchExecutor.address
-                };
-
-                const calls = pendingCalls.map(c => ({ target: c.target, value: c.value, data: c.data }));
-                const callHashes = calls.map(c =>
-                    ethers.utils.keccak256(ethers.utils.defaultAbiCoder.encode(
-                        ['address', 'uint256', 'bytes32'],
-                        [c.target, c.value, ethers.utils.keccak256(c.data)]
-                    ))
-                );
-                const callsHash = ethers.utils.keccak256(
-                    ethers.utils.solidityPack(callHashes.map(() => 'bytes32'), callHashes)
-                );
-
-                const types = {
-                    BatchExecution: [
-                        { name: 'from', type: 'address' },
-                        { name: 'callsHash', type: 'bytes32' },
-                        { name: 'nonce', type: 'uint256' },
-                        { name: 'deadline', type: 'uint256' }
-                    ]
-                };
-
-                const value = { from: address, callsHash, nonce, deadline };
-                log('Requesting EIP-712 signature (check MetaMask)...', 'info');
-                const signature = await signer._signTypedData(domain, types, value);
-                log('Signature obtained, forwarding to relayer...', 'success');
-                log('USER pays ZERO gas — relayer covers the cost!', 'info');
-
-                const relayerUrl = document.getElementById('relayerUrl').value || 'https://relayer-sigma.vercel.app';
-                const response = await fetch(`${relayerUrl}/relay/batch`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        from: address,
-                        calls: calls.map(c => ({ target: c.target, value: c.value.toString(), data: c.data })),
-                        nonce: nonce.toString(),
-                        deadline, signature
-                    })
-                });
-
-                const result = await response.json();
-                if (!result.success) throw new Error(result.error);
+                const result = await executeViaRelayer('Meta-tx');
 
                 gasResults.standard = parseInt(result.data.gasUsed);
                 gasResults.individual = gasResults.individual || pendingCalls.reduce((s, c) => s + c.estimatedGas, 0);
