@@ -368,15 +368,41 @@
             throw new Error('Transaction not confirmed after 6 minutes');
         }
 
-        // Helper: estimate gas via public RPC and return overrides
-        async function gasOverrides(txParams) {
+        // Helper: build full tx overrides via public RPC so MetaMask doesn't fetch anything
+        async function fullTxOverrides(txParams) {
             const p = readProvider || provider;
-            try {
-                const est = await p.estimateGas(txParams);
-                return { gasLimit: est.mul(140).div(100) };
-            } catch (e) {
-                return { gasLimit: 1000000 };
+            const fromAddr = txParams.from || await signer.getAddress();
+            const [nonce, feeData, gasEst] = await Promise.all([
+                p.getTransactionCount(fromAddr, 'pending'),
+                p.getFeeData(),
+                p.estimateGas(txParams).catch(() => ethers.BigNumber.from(1000000))
+            ]);
+            return {
+                nonce,
+                gasLimit: gasEst.mul(150).div(100),
+                maxFeePerGas: feeData.maxFeePerGas || feeData.gasPrice,
+                maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || ethers.utils.parseUnits('1.5', 'gwei'),
+                type: 2,
+            };
+        }
+
+        // Helper: send tx with retry on rate-limit errors
+        async function sendWithRetry(sendFn, maxRetries = 3) {
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    return await sendFn();
+                } catch (e) {
+                    const msg = e.message || '';
+                    if (msg.includes('too many errors') || msg.includes('retrying in') || msg.includes('-32002')) {
+                        const waitSec = 10 * (attempt + 1);
+                        log(`  Rate limited, waiting ${waitSec}s before retry...`, 'info');
+                        await new Promise(r => setTimeout(r, waitSec * 1000));
+                        continue;
+                    }
+                    throw e;
+                }
             }
+            throw new Error('Transaction failed after retries — MetaMask RPC is heavily throttled');
         }
 
         // ABIs
@@ -750,15 +776,18 @@
 
                 let totalGas = 0;
                 const callerAddr = await signer.getAddress();
+                let currentNonce = await (readProvider || provider).getTransactionCount(callerAddr, 'pending');
                 for (let i = 0; i < pendingCalls.length; i++) {
                     const call = pendingCalls[i];
                     log(`  [${i+1}/${pendingCalls.length}] ${call.description}...`, 'info');
-                    const overrides = await gasOverrides({ from: callerAddr, to: call.target, data: call.data, value: call.value });
-                    const tx = await signer.sendTransaction({ to: call.target, data: call.data, value: call.value, ...overrides });
+                    const overrides = await fullTxOverrides({ from: callerAddr, to: call.target, data: call.data, value: call.value });
+                    overrides.nonce = currentNonce;
+                    const tx = await sendWithRetry(() => signer.sendTransaction({ to: call.target, data: call.data, value: call.value, ...overrides }));
                     const receipt = await waitForReceipt(tx.hash);
                     totalGas += parseInt(receipt.gasUsed.toString());
                     log(`  Done - Gas: ${receipt.gasUsed.toString()}`, 'success');
-                    if (i < pendingCalls.length - 1) await new Promise(r => setTimeout(r, 1000));
+                    currentNonce++;
+                    if (i < pendingCalls.length - 1) await new Promise(r => setTimeout(r, 2000));
                 }
 
                 gasResults.individual = totalGas;
@@ -784,11 +813,11 @@
 
                 const calls = pendingCalls.map(c => ({ target: c.target, value: c.value, data: c.data }));
                 const callerAddr = await signer.getAddress();
-                const overrides = await gasOverrides({
+                const overrides = await fullTxOverrides({
                     from: callerAddr, to: batchExecutor.address,
                     data: batchExecutor.interface.encodeFunctionData('executeBatch', [calls])
                 });
-                const tx = await batchExecutor.executeBatch(calls, overrides);
+                const tx = await sendWithRetry(() => batchExecutor.executeBatch(calls, overrides));
                 const receipt = await waitForReceipt(tx.hash);
 
                 gasResults.standard = parseInt(receipt.gasUsed.toString());
@@ -819,11 +848,11 @@
                 const callerAddr = await signer.getAddress();
                 if (targets.length === 1) {
                     const dataArray = pendingCalls.map(c => c.data);
-                    const overrides = await gasOverrides({
+                    const overrides = await fullTxOverrides({
                         from: callerAddr, to: compressedBatchExecutor.address,
                         data: compressedBatchExecutor.interface.encodeFunctionData('executeSameTarget', [targets[0], dataArray])
                     });
-                    const tx = await compressedBatchExecutor.executeSameTarget(targets[0], dataArray, overrides);
+                    const tx = await sendWithRetry(() => compressedBatchExecutor.executeSameTarget(targets[0], dataArray, overrides));
                     receipt = await waitForReceipt(tx.hash);
                     log('Used executeSameTarget (single target optimization)', 'info');
                 } else {
@@ -833,11 +862,11 @@
                         value: c.value,
                         data: c.data
                     }));
-                    const overrides = await gasOverrides({
+                    const overrides = await fullTxOverrides({
                         from: callerAddr, to: compressedBatchExecutor.address,
                         data: compressedBatchExecutor.interface.encodeFunctionData('executeCompressedBatch', [targetList, calls])
                     });
-                    const tx = await compressedBatchExecutor.executeCompressedBatch(targetList, calls, overrides);
+                    const tx = await sendWithRetry(() => compressedBatchExecutor.executeCompressedBatch(targetList, calls, overrides));
                     receipt = await waitForReceipt(tx.hash);
                     log(`Used executeCompressedBatch (${targets.length} unique targets)`, 'info');
                 }
