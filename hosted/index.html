@@ -564,16 +564,10 @@
         const batchItems = document.getElementById('batchItems');
 
         // Helpers
-        async function estimateIndividualGas(target, data) {
-            if (!signer) return 100000;
-            const p = readProvider || provider;
-            try {
-                const address = await signer.getAddress();
-                const estimate = await p.estimateGas({ from: address, to: target, data });
-                return parseInt(estimate.toString());
-            } catch (e) {
-                return 100000;
-            }
+        // Static gas estimate per action (avoids RPC calls; real gas measured from receipts)
+        function estimateIndividualGas(target, data) {
+            // updateProfile ~65k, createListing ~80k; use 75k average
+            return 75000;
         }
 
         function log(message, type = 'info') {
@@ -745,22 +739,10 @@
 
             try {
                 sampleDApp = new ethers.Contract(dappAddr, SAMPLE_DAPP_ABI, signer);
-                try {
-                    const readDApp = readProvider ? sampleDApp.connect(readProvider) : sampleDApp;
-                    await readDApp.getStats();
-                } catch (verifyErr) {
-                    log('SampleDApp verify call failed (RPC may be throttled) — contract bound anyway', 'info');
-                }
                 log('SampleDApp loaded', 'success');
 
                 if (batchAddr && ethers.utils.isAddress(batchAddr)) {
                     batchExecutor = new ethers.Contract(batchAddr, BATCH_EXECUTOR_ABI, signer);
-                    try {
-                        const readBE = readProvider ? batchExecutor.connect(readProvider) : batchExecutor;
-                        await readBE.getGasStats();
-                    } catch (verifyErr) {
-                        log('BatchExecutor verify call failed (RPC may be throttled) — contract bound anyway', 'info');
-                    }
                     log('BatchExecutor loaded', 'success');
                 }
 
