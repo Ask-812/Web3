@@ -504,6 +504,25 @@
                 }
                 await window.ethereum.request({ method: 'eth_requestAccounts' });
                 provider = new ethers.providers.Web3Provider(window.ethereum);
+                // Auto-switch to Sepolia if not already on it
+                const SEPOLIA_CHAIN_ID = '0xaa36a7'; // 11155111
+                const currentChain = await window.ethereum.request({ method: 'eth_chainId' });
+                if (currentChain !== SEPOLIA_CHAIN_ID) {
+                    try {
+                        await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: SEPOLIA_CHAIN_ID }] });
+                    } catch (switchErr) {
+                        if (switchErr.code === 4902) {
+                            await window.ethereum.request({ method: 'wallet_addEthereumChain', params: [{
+                                chainId: SEPOLIA_CHAIN_ID, chainName: 'Sepolia Testnet',
+                                nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+                                rpcUrls: ['https://ethereum-sepolia-rpc.publicnode.com'],
+                                blockExplorerUrls: ['https://sepolia.etherscan.io']
+                            }] });
+                        } else { throw switchErr; }
+                    }
+                    provider = new ethers.providers.Web3Provider(window.ethereum);
+                    log('Switched to Sepolia testnet', 'success');
+                }
                 signer = provider.getSigner();
                 // Use public RPC for reads to avoid MetaMask rate limiting
                 const chainId = (await provider.getNetwork()).chainId;
