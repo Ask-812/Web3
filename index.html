@@ -342,12 +342,42 @@
 
         // State
         let provider = null;
+        let readProvider = null;
         let signer = null;
         let batchExecutor = null;
         let compressedBatchExecutor = null;
         let sampleDApp = null;
         let pendingCalls = [];
         let gasResults = { individual: null, standard: null, compressed: null };
+
+        // Public RPCs keyed by chainId (avoids MetaMask rate limiting)
+        const PUBLIC_RPCS = {
+            11155111: 'https://ethereum-sepolia-rpc.publicnode.com',
+            1: 'https://ethereum-rpc.publicnode.com',
+            31337: 'http://127.0.0.1:8545'
+        };
+
+        // Helper: wait for tx receipt via public RPC (avoids MetaMask polling)
+        async function waitForReceipt(txHash) {
+            const p = readProvider || provider;
+            for (let i = 0; i < 120; i++) {
+                const receipt = await p.getTransactionReceipt(txHash);
+                if (receipt && receipt.blockNumber) return receipt;
+                await new Promise(r => setTimeout(r, 3000));
+            }
+            throw new Error('Transaction not confirmed after 6 minutes');
+        }
+
+        // Helper: estimate gas via public RPC and return overrides
+        async function gasOverrides(txParams) {
+            const p = readProvider || provider;
+            try {
+                const est = await p.estimateGas(txParams);
+                return { gasLimit: est.mul(140).div(100) };
+            } catch (e) {
+                return { gasLimit: 1000000 };
+            }
+        }
 
         // ABIs
         const BATCH_EXECUTOR_ABI = [
@@ -387,10 +417,11 @@
 
         // Helpers
         async function estimateIndividualGas(target, data) {
-            if (!provider || !signer) return 100000;
+            if (!signer) return 100000;
+            const p = readProvider || provider;
             try {
                 const address = await signer.getAddress();
-                const estimate = await provider.estimateGas({ from: address, to: target, data });
+                const estimate = await p.estimateGas({ from: address, to: target, data });
                 return parseInt(estimate.toString());
             } catch (e) {
                 return 100000;
@@ -405,7 +436,8 @@
         }
 
         async function updateStatus() {
-            if (!provider || !signer) return;
+            if (!signer) return;
+            const p = readProvider || provider;
             try {
                 const address = await signer.getAddress();
                 document.getElementById('walletStatus').textContent = address.slice(0, 6) + '...' + address.slice(-4);
@@ -413,10 +445,10 @@
                 const network = await provider.getNetwork();
                 document.getElementById('networkStatus').textContent =
                     network.chainId === 31337 ? 'Hardhat' : (network.name || 'Chain ' + network.chainId);
-                const balance = await provider.getBalance(address);
+                const balance = await p.getBalance(address);
                 document.getElementById('balanceStatus').textContent =
                     parseFloat(ethers.utils.formatEther(balance)).toFixed(4) + ' ETH';
-                const gasPrice = await provider.getGasPrice();
+                const gasPrice = await p.getGasPrice();
                 document.getElementById('gasPrice').textContent =
                     Math.round(parseFloat(ethers.utils.formatUnits(gasPrice, 'gwei'))) + ' Gwei';
             } catch (e) { console.error(e); }
@@ -473,6 +505,13 @@
                 await window.ethereum.request({ method: 'eth_requestAccounts' });
                 provider = new ethers.providers.Web3Provider(window.ethereum);
                 signer = provider.getSigner();
+                // Use public RPC for reads to avoid MetaMask rate limiting
+                const chainId = (await provider.getNetwork()).chainId;
+                const publicRpc = PUBLIC_RPCS[chainId];
+                if (publicRpc) {
+                    readProvider = new ethers.providers.JsonRpcProvider(publicRpc);
+                    log('Using public RPC for reads (avoids rate limits)', 'info');
+                }
                 log('Wallet connected!', 'success');
                 connectBtn.textContent = 'Connected ✓';
                 connectBtn.disabled = true;
@@ -538,14 +577,20 @@
 
             try {
                 sampleDApp = new ethers.Contract(dappAddr, SAMPLE_DAPP_ABI, signer);
-                try { await sampleDApp.getStats(); } catch (verifyErr) {
+                try {
+                    const readDApp = readProvider ? sampleDApp.connect(readProvider) : sampleDApp;
+                    await readDApp.getStats();
+                } catch (verifyErr) {
                     log('SampleDApp verify call failed (RPC may be throttled) — contract bound anyway', 'info');
                 }
                 log('SampleDApp loaded', 'success');
 
                 if (batchAddr && ethers.utils.isAddress(batchAddr)) {
                     batchExecutor = new ethers.Contract(batchAddr, BATCH_EXECUTOR_ABI, signer);
-                    try { await batchExecutor.getGasStats(); } catch (verifyErr) {
+                    try {
+                        const readBE = readProvider ? batchExecutor.connect(readProvider) : batchExecutor;
+                        await readBE.getGasStats();
+                    } catch (verifyErr) {
                         log('BatchExecutor verify call failed (RPC may be throttled) — contract bound anyway', 'info');
                     }
                     log('BatchExecutor loaded', 'success');
@@ -685,13 +730,16 @@
                 executeIndividualBtn.disabled = true;
 
                 let totalGas = 0;
+                const callerAddr = await signer.getAddress();
                 for (let i = 0; i < pendingCalls.length; i++) {
                     const call = pendingCalls[i];
                     log(`  [${i+1}/${pendingCalls.length}] ${call.description}...`, 'info');
-                    const tx = await signer.sendTransaction({ to: call.target, data: call.data, value: call.value });
-                    const receipt = await tx.wait();
+                    const overrides = await gasOverrides({ from: callerAddr, to: call.target, data: call.data, value: call.value });
+                    const tx = await signer.sendTransaction({ to: call.target, data: call.data, value: call.value, ...overrides });
+                    const receipt = await waitForReceipt(tx.hash);
                     totalGas += parseInt(receipt.gasUsed.toString());
                     log(`  Done - Gas: ${receipt.gasUsed.toString()}`, 'success');
+                    if (i < pendingCalls.length - 1) await new Promise(r => setTimeout(r, 1000));
                 }
 
                 gasResults.individual = totalGas;
@@ -716,8 +764,13 @@
                 executeBatchBtn.disabled = true;
 
                 const calls = pendingCalls.map(c => ({ target: c.target, value: c.value, data: c.data }));
-                const tx = await batchExecutor.executeBatch(calls);
-                const receipt = await tx.wait();
+                const callerAddr = await signer.getAddress();
+                const overrides = await gasOverrides({
+                    from: callerAddr, to: batchExecutor.address,
+                    data: batchExecutor.interface.encodeFunctionData('executeBatch', [calls])
+                });
+                const tx = await batchExecutor.executeBatch(calls, overrides);
+                const receipt = await waitForReceipt(tx.hash);
 
                 gasResults.standard = parseInt(receipt.gasUsed.toString());
                 gasResults.individual = gasResults.individual || pendingCalls.reduce((s, c) => s + c.estimatedGas, 0);
@@ -744,10 +797,15 @@
                 const targets = [...new Set(pendingCalls.map(c => c.target))];
                 let receipt;
 
+                const callerAddr = await signer.getAddress();
                 if (targets.length === 1) {
                     const dataArray = pendingCalls.map(c => c.data);
-                    const tx = await compressedBatchExecutor.executeSameTarget(targets[0], dataArray);
-                    receipt = await tx.wait();
+                    const overrides = await gasOverrides({
+                        from: callerAddr, to: compressedBatchExecutor.address,
+                        data: compressedBatchExecutor.interface.encodeFunctionData('executeSameTarget', [targets[0], dataArray])
+                    });
+                    const tx = await compressedBatchExecutor.executeSameTarget(targets[0], dataArray, overrides);
+                    receipt = await waitForReceipt(tx.hash);
                     log('Used executeSameTarget (single target optimization)', 'info');
                 } else {
                     const targetList = targets;
@@ -756,8 +814,12 @@
                         value: c.value,
                         data: c.data
                     }));
-                    const tx = await compressedBatchExecutor.executeCompressedBatch(targetList, calls);
-                    receipt = await tx.wait();
+                    const overrides = await gasOverrides({
+                        from: callerAddr, to: compressedBatchExecutor.address,
+                        data: compressedBatchExecutor.interface.encodeFunctionData('executeCompressedBatch', [targetList, calls])
+                    });
+                    const tx = await compressedBatchExecutor.executeCompressedBatch(targetList, calls, overrides);
+                    receipt = await waitForReceipt(tx.hash);
                     log(`Used executeCompressedBatch (${targets.length} unique targets)`, 'info');
                 }
 
@@ -784,13 +846,15 @@
                 executeMetaBtn.disabled = true;
 
                 const address = await signer.getAddress();
-                const nonce = await batchExecutor.getNonce(address);
+                const readBE = readProvider ? batchExecutor.connect(readProvider) : batchExecutor;
+                const nonce = await readBE.getNonce(address);
                 const deadline = Math.floor(Date.now() / 1000) + 3600;
+                const p = readProvider || provider;
 
                 const domain = {
                     name: 'GasOptimizer',
                     version: '1',
-                    chainId: (await provider.getNetwork()).chainId,
+                    chainId: (await p.getNetwork()).chainId,
                     verifyingContract: batchExecutor.address
                 };
 
