@@ -229,7 +229,7 @@
                 </div>
                 <div class="input-group">
                     <label>Relayer URL</label>
-                    <input type="text" id="relayerUrl" placeholder="http://localhost:3000" value="http://localhost:3000">
+                    <input type="text" id="relayerUrl" placeholder="https://relayer-sigma.vercel.app" value="https://relayer-sigma.vercel.app">
                 </div>
                 <button id="loadContractsBtn" class="primary">Load Contracts</button>
             </div>
@@ -816,7 +816,7 @@
                 log('Signature obtained, forwarding to relayer...', 'success');
                 log('USER pays ZERO gas — relayer covers the cost!', 'info');
 
-                const relayerUrl = document.getElementById('relayerUrl').value || 'http://localhost:3000';
+                const relayerUrl = document.getElementById('relayerUrl').value || 'https://relayer-sigma.vercel.app';
                 const response = await fetch(`${relayerUrl}/relay/batch`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
