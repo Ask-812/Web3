@@ -186,7 +186,7 @@
 <body>
     <div class="container">
         <header>
-            <h1>⛽ Gas Fee Optimizer</h1>
+            <h1>Gas Fee Optimizer</h1>
             <p class="subtitle">Calldata Compression &bull; Context-Preserving Batching &bull; Cross-User Bundling</p>
             <span class="badge">Web3Assam - KRITI 2026</span>
         </header>
@@ -213,7 +213,7 @@
         <div class="grid">
             <!-- Connection Card -->
             <div class="card">
-                <h2><span class="icon">🔗</span> Connection</h2>
+                <h2>Connection</h2>
                 <button id="connectBtn" class="primary">Connect Wallet</button>
                 <div class="input-group">
                     <label>BatchExecutor Address</label>
@@ -236,7 +236,7 @@
 
             <!-- Batch Builder Card -->
             <div class="card">
-                <h2><span class="icon">📦</span> Batch Builder</h2>
+                <h2>Batch Builder</h2>
                 <div class="input-group">
                     <label>Username (Profile Update)</label>
                     <input type="text" id="username" placeholder="Enter username">
@@ -254,47 +254,47 @@
                     <input type="number" id="listingPrice" placeholder="0.1" step="0.01">
                 </div>
                 <button id="addToBatchBtn" class="primary">Add Actions to Batch</button>
-                <button id="quickDemoBtn" class="warning">⚡ Quick Demo (Load 5 Actions)</button>
-                <button id="quickDemo10Btn" class="compressed">🚀 Big Demo (Load 10 Actions)</button>
+                <button id="quickDemoBtn" class="warning">Quick Demo (Load 5 Actions)</button>
+                <button id="quickDemo10Btn" class="compressed">Big Demo (Load 10 Actions)</button>
             </div>
 
             <!-- Pending Batch Card -->
             <div class="card">
-                <h2><span class="icon">📋</span> Pending Batch (<span id="batchCount">0</span> actions)</h2>
+                <h2>Pending Batch (<span id="batchCount">0</span> actions)</h2>
                 <div id="batchItems" class="batch-items">
                     <p style="color: var(--text-muted); text-align: center;">No actions in batch</p>
                 </div>
                 <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.75rem;">Choose execution mode:</p>
                 <button id="executeIndividualBtn" class="danger" disabled>
-                    🐌 Execute Individually (No Optimization)
+                    Execute Individually (No Optimization)
                 </button>
                 <button id="executeBatchBtn" class="success" disabled>
-                    📦 Standard Batch
+                    Standard Batch
                 </button>
                 <button id="executeCompressedBtn" class="compressed" disabled>
-                    ⚡ Compressed Batch <span class="feature-tag novel">NOVEL</span>
+                    Compressed Batch <span class="feature-tag novel">NOVEL</span>
                 </button>
                 <button id="executeMetaBtn" class="warning" disabled>
-                    🔐 Meta-Tx via Relayer (Gasless) <span class="feature-tag eip">EIP-712</span>
+                    Meta-Tx via Relayer (Gasless) <span class="feature-tag eip">EIP-712</span>
                 </button>
                 <button id="clearBatchBtn" class="primary">Clear Batch</button>
             </div>
 
             <!-- Gas Comparison Card -->
             <div class="card">
-                <h2><span class="icon">📊</span> Gas Comparison</h2>
+                <h2>Gas Comparison</h2>
                 <div class="stats-grid">
                     <div class="stat-card">
                         <div id="individualGas" class="value individual">-</div>
-                        <div class="label">🐌 Individual</div>
+                        <div class="label">Individual</div>
                     </div>
                     <div class="stat-card">
                         <div id="batchedGas" class="value standard">-</div>
-                        <div class="label">📦 Standard Batch</div>
+                        <div class="label">Standard Batch</div>
                     </div>
                     <div class="stat-card">
                         <div id="compressedGas" class="value compressed-val">-</div>
-                        <div class="label">⚡ Compressed</div>
+                        <div class="label">Compressed</div>
                     </div>
                 </div>
 
@@ -320,14 +320,14 @@
                 </div>
 
                 <div id="savingsBanner" class="savings-banner" style="display: none;">
-                    <h3>🎉 Total Savings</h3>
+                    <h3>Total Savings</h3>
                     <div id="totalSavings" class="savings">-</div>
                 </div>
             </div>
 
             <!-- Activity Log -->
             <div class="card" style="grid-column: 1 / -1;">
-                <h2><span class="icon">📜</span> Activity Log</h2>
+                <h2>Activity Log</h2>
                 <div id="logContainer" class="log-container">
                     <div class="log-entry info">Welcome to Gas Fee Optimizer! Connect your wallet to get started.</div>
                 </div>
@@ -350,40 +350,78 @@
         let pendingCalls = [];
         let gasResults = { individual: null, standard: null, compressed: null };
 
-        // Public RPCs keyed by chainId (avoids MetaMask rate limiting)
-        const PUBLIC_RPCS = {
-            11155111: 'https://ethereum-sepolia-rpc.publicnode.com',
-            1: 'https://ethereum-rpc.publicnode.com',
-            31337: 'http://127.0.0.1:8545'
+        // Public RPCs keyed by chainId (round-robin to avoid rate limiting)
+        const PUBLIC_RPC_LIST = {
+            11155111: [
+                'https://ethereum-sepolia-rpc.publicnode.com',
+                'https://rpc.sepolia.org',
+                'https://sepolia.gateway.tenderly.co',
+                'https://rpc2.sepolia.org',
+                'https://1rpc.io/sepolia'
+            ],
+            1: ['https://ethereum-rpc.publicnode.com'],
+            31337: ['http://127.0.0.1:8545']
         };
+        let rpcIndex = 0;
 
-        // Helper: wait for tx receipt via public RPC (avoids MetaMask polling)
+        function getPublicRpc(chainId) {
+            const list = PUBLIC_RPC_LIST[chainId] || PUBLIC_RPC_LIST[11155111];
+            return list[rpcIndex % list.length];
+        }
+
+        function rotateRpc(chainId) {
+            const list = PUBLIC_RPC_LIST[chainId] || PUBLIC_RPC_LIST[11155111];
+            rpcIndex = (rpcIndex + 1) % list.length;
+            const newUrl = list[rpcIndex];
+            readProvider = new ethers.providers.JsonRpcProvider(newUrl);
+            log(`Rotated RPC -> ${newUrl.split('//')[1].split('/')[0]}`, 'info');
+            return readProvider;
+        }
+
+        // Helper: wait for tx receipt via public RPC (rotates on rate-limit)
         async function waitForReceipt(txHash) {
-            const p = readProvider || provider;
+            let p = readProvider || provider;
             for (let i = 0; i < 120; i++) {
-                const receipt = await p.getTransactionReceipt(txHash);
-                if (receipt && receipt.blockNumber) return receipt;
+                try {
+                    const receipt = await p.getTransactionReceipt(txHash);
+                    if (receipt && receipt.blockNumber) return receipt;
+                } catch (e) {
+                    if (isRateLimitError(e)) {
+                        p = rotateRpc(11155111);
+                    }
+                }
                 await new Promise(r => setTimeout(r, 3000));
             }
             throw new Error('Transaction not confirmed after 6 minutes');
         }
 
-        // Helper: build full tx overrides via public RPC so MetaMask doesn't fetch anything
+        // Helper: build full tx overrides via public RPC (rotates on rate-limit)
         async function fullTxOverrides(txParams) {
-            const p = readProvider || provider;
+            let p = readProvider || provider;
             const fromAddr = txParams.from || await signer.getAddress();
-            const [nonce, feeData, gasEst] = await Promise.all([
-                p.getTransactionCount(fromAddr, 'pending'),
-                p.getFeeData(),
-                p.estimateGas(txParams).catch(() => ethers.BigNumber.from(1000000))
-            ]);
-            return {
-                nonce,
-                gasLimit: gasEst.mul(150).div(100),
-                maxFeePerGas: feeData.maxFeePerGas || feeData.gasPrice,
-                maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || ethers.utils.parseUnits('1.5', 'gwei'),
-                type: 2,
-            };
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    const [nonce, feeData, gasEst] = await Promise.all([
+                        p.getTransactionCount(fromAddr, 'pending'),
+                        p.getFeeData(),
+                        p.estimateGas(txParams).catch(() => ethers.BigNumber.from(1000000))
+                    ]);
+                    return {
+                        nonce,
+                        gasLimit: gasEst.mul(150).div(100),
+                        maxFeePerGas: feeData.maxFeePerGas || feeData.gasPrice,
+                        maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || ethers.utils.parseUnits('1.5', 'gwei'),
+                        type: 2,
+                    };
+                } catch (e) {
+                    if (isRateLimitError(e) && attempt < 2) {
+                        p = rotateRpc(11155111);
+                        await new Promise(r => setTimeout(r, 2000));
+                        continue;
+                    }
+                    throw e;
+                }
+            }
         }
 
         // Helper: detect if error is a rate-limit / RPC throttle
@@ -396,22 +434,24 @@
                    msg.includes('limit exceeded') || msg.includes('throttl');
         }
 
-        // Helper: send tx with retry on rate-limit errors
+        // Helper: send tx with retry on rate-limit errors (rotates RPC on each retry)
         async function sendWithRetry(sendFn, maxRetries = 5) {
             for (let attempt = 0; attempt < maxRetries; attempt++) {
                 try {
                     return await sendFn();
                 } catch (e) {
                     if (isRateLimitError(e) && attempt < maxRetries - 1) {
-                        const waitSec = 10 + 10 * attempt;
-                        log(`  Rate limited, waiting ${waitSec}s before retry (${attempt+1}/${maxRetries})...`, 'info');
+                        const chainId = readProvider ? (await readProvider.getNetwork().catch(() => ({chainId:11155111}))).chainId : 11155111;
+                        rotateRpc(chainId);
+                        const waitSec = 3 + 3 * attempt;
+                        log(`  Rate limited, rotated RPC, waiting ${waitSec}s (${attempt+1}/${maxRetries})...`, 'info');
                         await new Promise(r => setTimeout(r, waitSec * 1000));
                         continue;
                     }
                     throw e;
                 }
             }
-            throw new Error('Transaction failed after retries — MetaMask RPC is heavily throttled');
+            throw new Error('Transaction failed after retries -- all RPCs throttled');
         }
 
         // Helper: execute pending calls via meta-tx relayer (reusable fallback)
@@ -611,10 +651,11 @@
                 signer = provider.getSigner();
                 // Use public RPC for reads to avoid MetaMask rate limiting
                 const chainId = (await provider.getNetwork()).chainId;
-                const publicRpc = PUBLIC_RPCS[chainId];
+                const publicRpc = getPublicRpc(chainId);
                 if (publicRpc) {
                     readProvider = new ethers.providers.JsonRpcProvider(publicRpc);
-                    log('Using public RPC for reads (avoids rate limits)', 'info');
+                    const list = PUBLIC_RPC_LIST[chainId] || [];
+                    log(`Using round-robin RPC (${list.length} endpoints available)`, 'info');
                 }
                 log('Wallet connected!', 'success');
                 connectBtn.textContent = 'Connected ✓';
@@ -868,7 +909,7 @@
                     log('Individual execution failed: ' + e.message, 'error');
                 }
             } finally {
-                executeIndividualBtn.textContent = '🐌 Execute Individually (No Optimization)';
+                executeIndividualBtn.textContent = 'Execute Individually (No Optimization)';
                 executeIndividualBtn.disabled = pendingCalls.length === 0;
             }
         });
@@ -915,7 +956,7 @@
                     log('Batch failed: ' + e.message, 'error');
                 }
             } finally {
-                executeBatchBtn.textContent = '📦 Standard Batch';
+                executeBatchBtn.textContent = 'Standard Batch';
                 executeBatchBtn.disabled = pendingCalls.length === 0;
             }
         });
@@ -982,7 +1023,7 @@
                     log('Compressed batch failed: ' + e.message, 'error');
                 }
             } finally {
-                executeCompressedBtn.textContent = '⚡ Compressed Batch';
+                executeCompressedBtn.textContent = 'Compressed Batch';
                 executeCompressedBtn.disabled = pendingCalls.length === 0;
             }
         });
@@ -1007,7 +1048,7 @@
             } catch (e) {
                 log('Meta-tx failed: ' + e.message, 'error');
             } finally {
-                executeMetaBtn.textContent = '🔐 Meta-Tx via Relayer (Gasless)';
+                executeMetaBtn.textContent = 'Meta-Tx via Relayer (Gasless)';
                 executeMetaBtn.disabled = pendingCalls.length === 0;
             }
         });
