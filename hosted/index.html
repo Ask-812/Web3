@@ -350,6 +350,22 @@
         let pendingCalls = [];
         let gasResults = { individual: null, standard: null, compressed: null };
 
+        // Cached fee data to minimize RPC calls
+        let cachedFeeData = null;
+        let feeDataTimestamp = 0;
+        const FEE_CACHE_TTL = 30000; // 30 seconds
+
+        async function getCachedFeeData(p) {
+            if (cachedFeeData && Date.now() - feeDataTimestamp < FEE_CACHE_TTL) return cachedFeeData;
+            try {
+                cachedFeeData = await p.getFeeData();
+                feeDataTimestamp = Date.now();
+            } catch (e) {
+                if (!cachedFeeData) throw e;
+            }
+            return cachedFeeData;
+        }
+
         // Public RPCs keyed by chainId (round-robin to avoid rate limiting)
         const PUBLIC_RPC_LIST = {
             11155111: [
@@ -395,20 +411,28 @@
             throw new Error('Transaction not confirmed after 6 minutes');
         }
 
-        // Helper: build full tx overrides via public RPC (rotates on rate-limit)
-        async function fullTxOverrides(txParams) {
+        // Helper: build tx overrides (uses cached feeData, skips estimateGas when skipEstimate=true)
+        async function fullTxOverrides(txParams, skipEstimate = false) {
             let p = readProvider || provider;
             const fromAddr = txParams.from || await signer.getAddress();
             for (let attempt = 0; attempt < 3; attempt++) {
                 try {
-                    const [nonce, feeData, gasEst] = await Promise.all([
+                    const promises = [
                         p.getTransactionCount(fromAddr, 'pending'),
-                        p.getFeeData(),
-                        p.estimateGas(txParams).catch(() => ethers.BigNumber.from(1000000))
-                    ]);
+                        getCachedFeeData(p)
+                    ];
+                    if (!skipEstimate) {
+                        promises.push(p.estimateGas(txParams).catch(() => ethers.BigNumber.from(1500000)));
+                    }
+                    const results = await Promise.all(promises);
+                    const nonce = results[0];
+                    const feeData = results[1];
+                    const gasLimit = skipEstimate
+                        ? ethers.BigNumber.from(2000000)
+                        : results[2].mul(150).div(100);
                     return {
                         nonce,
-                        gasLimit: gasEst.mul(150).div(100),
+                        gasLimit,
                         maxFeePerGas: feeData.maxFeePerGas || feeData.gasPrice,
                         maxPriorityFeePerGas: feeData.maxPriorityFeePerGas || ethers.utils.parseUnits('1.5', 'gwei'),
                         type: 2,
@@ -416,7 +440,7 @@
                 } catch (e) {
                     if (isRateLimitError(e) && attempt < 2) {
                         p = rotateRpc(11155111);
-                        await new Promise(r => setTimeout(r, 2000));
+                        await new Promise(r => setTimeout(r, 1000));
                         continue;
                     }
                     throw e;
@@ -434,16 +458,15 @@
                    msg.includes('limit exceeded') || msg.includes('throttl');
         }
 
-        // Helper: send tx with retry on rate-limit errors (rotates RPC on each retry)
-        async function sendWithRetry(sendFn, maxRetries = 5) {
+        // Helper: send tx with retry on rate-limit errors (rotates RPC, fast-fail)
+        async function sendWithRetry(sendFn, maxRetries = 2) {
             for (let attempt = 0; attempt < maxRetries; attempt++) {
                 try {
                     return await sendFn();
                 } catch (e) {
                     if (isRateLimitError(e) && attempt < maxRetries - 1) {
-                        const chainId = readProvider ? (await readProvider.getNetwork().catch(() => ({chainId:11155111}))).chainId : 11155111;
-                        rotateRpc(chainId);
-                        const waitSec = 3 + 3 * attempt;
+                        rotateRpc(11155111);
+                        const waitSec = 2 + 2 * attempt;
                         log(`  Rate limited, rotated RPC, waiting ${waitSec}s (${attempt+1}/${maxRetries})...`, 'info');
                         await new Promise(r => setTimeout(r, waitSec * 1000));
                         continue;
@@ -927,7 +950,7 @@
                 const overrides = await fullTxOverrides({
                     from: callerAddr, to: batchExecutor.address,
                     data: batchExecutor.interface.encodeFunctionData('executeBatch', [calls])
-                });
+                }, true);
                 const tx = await sendWithRetry(() => batchExecutor.executeBatch(calls, overrides));
                 const receipt = await waitForReceipt(tx.hash);
 
@@ -978,7 +1001,7 @@
                     const overrides = await fullTxOverrides({
                         from: callerAddr, to: compressedBatchExecutor.address,
                         data: compressedBatchExecutor.interface.encodeFunctionData('executeSameTarget', [targets[0], dataArray])
-                    });
+                    }, true);
                     const tx = await sendWithRetry(() => compressedBatchExecutor.executeSameTarget(targets[0], dataArray, overrides));
                     receipt = await waitForReceipt(tx.hash);
                     log('Used executeSameTarget (single target optimization)', 'info');
@@ -992,7 +1015,7 @@
                     const overrides = await fullTxOverrides({
                         from: callerAddr, to: compressedBatchExecutor.address,
                         data: compressedBatchExecutor.interface.encodeFunctionData('executeCompressedBatch', [targetList, calls])
-                    });
+                    }, true);
                     const tx = await sendWithRetry(() => compressedBatchExecutor.executeCompressedBatch(targetList, calls, overrides));
                     receipt = await waitForReceipt(tx.hash);
                     log(`Used executeCompressedBatch (${targets.length} unique targets)`, 'info');
