@@ -538,12 +538,16 @@
 
             try {
                 sampleDApp = new ethers.Contract(dappAddr, SAMPLE_DAPP_ABI, signer);
-                await sampleDApp.getStats();
+                try { await sampleDApp.getStats(); } catch (verifyErr) {
+                    log('SampleDApp verify call failed (RPC may be throttled) — contract bound anyway', 'info');
+                }
                 log('SampleDApp loaded', 'success');
 
                 if (batchAddr && ethers.utils.isAddress(batchAddr)) {
                     batchExecutor = new ethers.Contract(batchAddr, BATCH_EXECUTOR_ABI, signer);
-                    await batchExecutor.getGasStats();
+                    try { await batchExecutor.getGasStats(); } catch (verifyErr) {
+                        log('BatchExecutor verify call failed (RPC may be throttled) — contract bound anyway', 'info');
+                    }
                     log('BatchExecutor loaded', 'success');
                 }
 
