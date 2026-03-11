@@ -186,7 +186,7 @@
 <body>
     <div class="container">
         <header>
-            <h1>⛽ Gas Fee Optimizer</h1>
+            <h1>Gas Fee Optimizer</h1>
             <p class="subtitle">Calldata Compression &bull; Context-Preserving Batching &bull; Cross-User Bundling</p>
             <span class="badge">Web3Assam - KRITI 2026</span>
         </header>
@@ -213,7 +213,7 @@
         <div class="grid">
             <!-- Connection Card -->
             <div class="card">
-                <h2><span class="icon">🔗</span> Connection</h2>
+                <h2>Connection</h2>
                 <button id="connectBtn" class="primary">Connect Wallet</button>
                 <div class="input-group">
                     <label>BatchExecutor Address</label>
@@ -236,7 +236,7 @@
 
             <!-- Batch Builder Card -->
             <div class="card">
-                <h2><span class="icon">📦</span> Batch Builder</h2>
+                <h2>Batch Builder</h2>
                 <div class="input-group">
                     <label>Username (Profile Update)</label>
                     <input type="text" id="username" placeholder="Enter username">
@@ -254,47 +254,47 @@
                     <input type="number" id="listingPrice" placeholder="0.1" step="0.01">
                 </div>
                 <button id="addToBatchBtn" class="primary">Add Actions to Batch</button>
-                <button id="quickDemoBtn" class="warning">⚡ Quick Demo (Load 5 Actions)</button>
-                <button id="quickDemo10Btn" class="compressed">🚀 Big Demo (Load 10 Actions)</button>
+                <button id="quickDemoBtn" class="warning">Quick Demo (Load 5 Actions)</button>
+                <button id="quickDemo10Btn" class="compressed">Big Demo (Load 10 Actions)</button>
             </div>
 
             <!-- Pending Batch Card -->
             <div class="card">
-                <h2><span class="icon">📋</span> Pending Batch (<span id="batchCount">0</span> actions)</h2>
+                <h2>Pending Batch (<span id="batchCount">0</span> actions)</h2>
                 <div id="batchItems" class="batch-items">
                     <p style="color: var(--text-muted); text-align: center;">No actions in batch</p>
                 </div>
                 <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.75rem;">Choose execution mode:</p>
                 <button id="executeIndividualBtn" class="danger" disabled>
-                    🐌 Execute Individually (No Optimization)
+                    Execute Individually (No Optimization)
                 </button>
                 <button id="executeBatchBtn" class="success" disabled>
-                    📦 Standard Batch
+                    Standard Batch
                 </button>
                 <button id="executeCompressedBtn" class="compressed" disabled>
-                    ⚡ Compressed Batch <span class="feature-tag novel">NOVEL</span>
+                    Compressed Batch <span class="feature-tag novel">NOVEL</span>
                 </button>
                 <button id="executeMetaBtn" class="warning" disabled>
-                    🔐 Meta-Tx via Relayer (Gasless) <span class="feature-tag eip">EIP-712</span>
+                    Meta-Tx via Relayer (Gasless) <span class="feature-tag eip">EIP-712</span>
                 </button>
                 <button id="clearBatchBtn" class="primary">Clear Batch</button>
             </div>
 
             <!-- Gas Comparison Card -->
             <div class="card">
-                <h2><span class="icon">📊</span> Gas Comparison</h2>
+                <h2>Gas Comparison</h2>
                 <div class="stats-grid">
                     <div class="stat-card">
                         <div id="individualGas" class="value individual">-</div>
-                        <div class="label">🐌 Individual</div>
+                        <div class="label">Individual</div>
                     </div>
                     <div class="stat-card">
                         <div id="batchedGas" class="value standard">-</div>
-                        <div class="label">📦 Standard Batch</div>
+                        <div class="label">Standard Batch</div>
                     </div>
                     <div class="stat-card">
                         <div id="compressedGas" class="value compressed-val">-</div>
-                        <div class="label">⚡ Compressed</div>
+                        <div class="label">Compressed</div>
                     </div>
                 </div>
 
@@ -320,14 +320,14 @@
                 </div>
 
                 <div id="savingsBanner" class="savings-banner" style="display: none;">
-                    <h3>🎉 Total Savings</h3>
+                    <h3>Total Savings</h3>
                     <div id="totalSavings" class="savings">-</div>
                 </div>
             </div>
 
             <!-- Activity Log -->
             <div class="card" style="grid-column: 1 / -1;">
-                <h2><span class="icon">📜</span> Activity Log</h2>
+                <h2>Activity Log</h2>
                 <div id="logContainer" class="log-container">
                     <div class="log-entry info">Welcome to Gas Fee Optimizer! Connect your wallet to get started.</div>
                 </div>
@@ -868,7 +868,7 @@
                     log('Individual execution failed: ' + e.message, 'error');
                 }
             } finally {
-                executeIndividualBtn.textContent = '🐌 Execute Individually (No Optimization)';
+                executeIndividualBtn.textContent = 'Execute Individually (No Optimization)';
                 executeIndividualBtn.disabled = pendingCalls.length === 0;
             }
         });
@@ -915,7 +915,7 @@
                     log('Batch failed: ' + e.message, 'error');
                 }
             } finally {
-                executeBatchBtn.textContent = '📦 Standard Batch';
+                executeBatchBtn.textContent = 'Standard Batch';
                 executeBatchBtn.disabled = pendingCalls.length === 0;
             }
         });
@@ -982,7 +982,7 @@
                     log('Compressed batch failed: ' + e.message, 'error');
                 }
             } finally {
-                executeCompressedBtn.textContent = '⚡ Compressed Batch';
+                executeCompressedBtn.textContent = 'Compressed Batch';
                 executeCompressedBtn.disabled = pendingCalls.length === 0;
             }
         });
@@ -1007,7 +1007,7 @@
             } catch (e) {
                 log('Meta-tx failed: ' + e.message, 'error');
             } finally {
-                executeMetaBtn.textContent = '🔐 Meta-Tx via Relayer (Gasless)';
+                executeMetaBtn.textContent = 'Meta-Tx via Relayer (Gasless)';
                 executeMetaBtn.disabled = pendingCalls.length === 0;
             }
         });
