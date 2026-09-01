@@ -2,7 +2,7 @@
 
 > A comprehensive solution for reducing Ethereum gas costs and improving user experience through transaction batching, meta-transactions, and gas sponsorship.
 
-**Built for KRITI 2026 - Web3Assam**
+**Built for KRITI 2026 - Web3 Assam**
 
 ![Solidity](https://img.shields.io/badge/solidity-0.8.24-purple.svg)
 ![Hardhat](https://img.shields.io/badge/hardhat-2.x-yellow.svg)
